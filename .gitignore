@@ -1,0 +1,10 @@
+win/yolang/Release/
+win/yolang/Debug/
+win/yolang/x64/Release/
+win/yolang/x64/Debug/
+win/yolang/ipch/
+*.opensdf
+*.sdf
+*.suo
+*.vcxproj.user
+build

@@ -1,2 +1,2 @@
 # yolang
-Ё (Yo) is a new programming language
+Ё (Yo) is a new programming language. In progress...
