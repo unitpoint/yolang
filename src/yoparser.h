@@ -1,6 +1,9 @@
 #ifndef __YOPARSER_H__
 #define __YOPARSER_H__
 
+#define YYDEBUG 1
+// #define YYERROR_VERBOSE
+
 #define YYPARSE_PARAM parm
 #define YYLEX_PARAM parm
 #define YYSTYPE YoParserStackElement
@@ -16,6 +19,8 @@ struct YoParserParams {
 	const char * input;
 	// int inputLen;
 	const char * limit;
+	
+	const char * lineStart;
 	int line;
 
 	int state;
@@ -31,29 +36,37 @@ struct YoParserParams {
 	YoParserNode * root;
 
 	void init(const char * input);
+	void init(const char * input, int len);
 	void shutdown();
 	void dump();
-};
-
-enum EYoParserTypeSpec {
-	YO_TYPE_SPEC_VALUE,
-	YO_TYPE_SPEC_PTR,
-	YO_TYPE_SPEC_SLICE,
-	YO_TYPE_SPEC_ARRAY
 };
 
 enum EYoParserNodeType {
 	YO_NODE_EMPTY,
 	YO_NODE_NAME,
+	YO_NODE_DOTNAME,
 	YO_NODE_INT,
 	YO_NODE_DOUBLE,
 	YO_NODE_BIN_OP,
 	YO_NODE_UNARY_OP,
 	YO_NODE_CONST,
-	YO_NODE_TYPE_NAME, // temp
-	YO_NODE_TYPE,
+	YO_NODE_TYPE_STD_NAME,
+	YO_NODE_TYPE_NAME,
+	YO_NODE_TYPE_PTR,
+	YO_NODE_TYPE_SLICE,
+	YO_NODE_TYPE_ARR,
+	YO_NODE_TYPE_FUNC,
+	YO_NODE_NEW_ARR_EXPS,
+	YO_NODE_NEW_OBJ_EXPS,
+	YO_NODE_NEW_OBJ_PROPS,
 	// YO_NODE_STD_TYPE_PTR,
 	YO_NODE_DECL_VAR,
+	YO_NODE_DECL_ARG,
+	YO_NODE_DECL_FUNC,
+	YO_NODE_DECL_TYPE,
+	YO_NODE_INTERFACE,
+	YO_NODE_INTERFACE_FUNC,
+	YO_NODE_CLASS,
 	// YO_NODE_STATEMENT,
 	// YO_NODE_STATEMENT_LIST,
 
@@ -73,30 +86,51 @@ struct YoParserNode
 		int line;
 	} token;
 
-	YoParserNode * prev; // stmt
+	YoParserNode * prev;
 
 	union {
 		int ival;
 		double dval;
 
 		int constOp;
-
-		struct {
-			int stdTypeOp;
-			YoParserNode * pakage;
-			YoParserNode * name;
-			int arrSize;
-			EYoParserTypeSpec spec;
-		} type;
+		int typeStdName;
 
 		struct {
 			YoParserNode * type;
+		} typeName;
+
+		struct {
+			YoParserNode * type;
+		} typePtr;
+
+		struct {
+			YoParserNode * type;
+		} typeSlice;
+
+		struct {
+			YoParserNode * size;
+			YoParserNode * type;
+		} typeArr;
+
+		struct {
 			YoParserNode * name;
+			YoParserNode * type;
+		} declType;
+
+		struct {
+			YoParserNode * name;
+			YoParserNode * type;
 		} declVar;
 
 		struct {
+			YoParserNode * name;
+			YoParserNode * type;
+		} declArg;
+
+		struct {
 			int op;
-			YoParserNode * nodes[2];
+			YoParserNode * left;
+			YoParserNode * right;
 		} binOp;
 
 		struct {
@@ -106,12 +140,39 @@ struct YoParserNode
 
 		struct {
 			YoParserNode * node;
-		} stmt;
+		} dotName;
+
+		struct {
+			YoParserNode * values;
+		} arr;
+
+		struct {
+			YoParserNode * name;
+			YoParserNode * values;
+		} obj;
+
+		struct {
+			YoParserNode * self;
+			YoParserNode * name;
+			YoParserNode * args;
+			YoParserNode * type;
+			YoParserNode * body;
+		} func;
+
+		struct {
+			YoParserNode * node;
+		} interface;
+
+		struct {
+			YoParserNode * node;
+		} typeClass;
 	} data;
 
 	YoParserNode(EYoParserNodeType _type, YoParserParams * parser);
 	// ~YoParserNode();
 	// void reset();
+
+	bool isType() const;
 };
 
 struct YoParserStackElement

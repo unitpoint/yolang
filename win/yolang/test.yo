@@ -1,0 +1,23 @@
+func fmt.Finder.main(x, y int, z float, a, b, c [] char) {
+	var arr [3][]int32 = {{1, 2, 3}, {10, 20, 30}}
+}
+
+func (s *Test) test(a int32) int32 {}
+func (s Test) test2(a int32) ([]int32) {}
+func test3(a int32) ([]int32, *[][20]*[10]***interface{}) {}
+
+type Finder interface { 
+	Find(x, y int32, a, b, c []string) float64
+	Split(a Array) (float32, float32, byte)
+}
+
+type Callback func (x, y, z float32) float32
+
+type Complex class {
+	Real, Imag float64	
+}
+
+func test3(a int32) {
+	var x, y, z int32 = *&obj.a.b[1], *&obj[1].a.b + true * 1.2, 25 + abc
+	var x data = *&obj.a.b[1], *&obj[1].a.b + true * 1.2, 25 + abc
+}

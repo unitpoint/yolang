@@ -3,29 +3,44 @@
 #include <stdlib.h>
 #include "yoparser.h"
 
-extern void yoParserEnd(YYSTYPE*, void*);
-extern void yoParserBinOp(YYSTYPE * r, YYSTYPE * a, YYSTYPE * b, int op, void*);
-extern void yoParserBeginUnaryOp(YYSTYPE * r, int op, void*);
-extern void yoParserEndUnaryOp(YYSTYPE * r, YYSTYPE * a, YYSTYPE * op, void*);
-extern void yoParserConst(YYSTYPE * r, int op, void*);
-extern void yoParserStdTypeName(YYSTYPE * r, int op, void*);
-extern void yoParserTypeName(YYSTYPE * r, YYSTYPE * a, void*);
-extern void yoParserPkgTypeName(YYSTYPE * r, YYSTYPE * a, YYSTYPE * b, void*);
-extern void yoParserTypeSpec(YYSTYPE * r, YYSTYPE * a, EYoParserTypeSpec spec, void * parm);
-extern void yoParserTypeArray(YYSTYPE * r, YYSTYPE * a, YYSTYPE * b, void * parm);
-extern void yoParserDeclVar(YYSTYPE * r, YYSTYPE * a, YYSTYPE * b, void*);
-extern void yoParserStatementList(YYSTYPE * r, YYSTYPE * a, YYSTYPE * b, void*);
-// extern void yoParserMakeStatement(YYSTYPE * r, void*);
-extern void yoParserNewLine(void*);
+void yoParserEnd(YYSTYPE*, void*);
+void yoParserBinOp(YYSTYPE * r, YYSTYPE * a, YYSTYPE * b, int op, void*);
+void yoParserUnaryOp(YYSTYPE * r, YYSTYPE * a, int op, void*);
+void yoParserConst(YYSTYPE * r, int op, void*);
+void yoParserTypeStdName(YYSTYPE * r, int op, void*);
+void yoParserTypeName(YYSTYPE * r, YYSTYPE * a, void*);
+void yoParserTypePtr(YYSTYPE * r, YYSTYPE * a, void * parm);
+void yoParserTypeSlice(YYSTYPE * r, YYSTYPE * a, void * parm);
+void yoParserTypeArr(YYSTYPE * r, YYSTYPE * size, YYSTYPE * a, void * parm);
+void yoParserTypeFunc(YYSTYPE * r, YYSTYPE * self, YYSTYPE * args, YYSTYPE * type, void * parm);
+void yoParserDeclType(YYSTYPE * r, YYSTYPE * a, YYSTYPE * b, void*);
+void yoParserDeclVar(YYSTYPE * r, YYSTYPE * a, YYSTYPE * b, void*);
+void yoParserDeclArg(YYSTYPE * r, YYSTYPE * a, YYSTYPE * b, void*);
+void yoParserList(YYSTYPE * r, YYSTYPE * a, YYSTYPE * b, void*);
+void yoParserDotName(YYSTYPE * r, YYSTYPE * a, YYSTYPE * b, void*);
+void yoParserNewArr(YYSTYPE * r, void * parm);
+void yoParserNewArrExps(YYSTYPE * r, YYSTYPE * exp_list, void * parm);
+void yoParserNewObj(YYSTYPE * r, YYSTYPE * name, void * parm);
+void yoParserNewObjExps(YYSTYPE * r, YYSTYPE * name, YYSTYPE * exp_list, void * parm);
+void yoParserNewObjProps(YYSTYPE * r, YYSTYPE * name, YYSTYPE * prop_list, void * parm);
+void yoParserNewLine(void*);
+void yoParserDeclFunc(YYSTYPE * r, YYSTYPE * self, YYSTYPE * name, YYSTYPE * args, YYSTYPE * type, YYSTYPE * body, void*);
+void yoParserInterfaceFunc(YYSTYPE * r, YYSTYPE * name, YYSTYPE * args, YYSTYPE * type, void*);
+void yoParserInterface(YYSTYPE * r, YYSTYPE * a, void * parm);
+void yoParserClass(YYSTYPE * r, YYSTYPE * a, void * parm);
+void yoParserDebug(YYSTYPE*, void*);
+void yoParserError(YYSTYPE*, void*);
+void yoParseEmpty(YYSTYPE*, void*);
 
-extern int yolex(YYSTYPE*, void * parser);
-extern void yyerror(const char* s);
+int yolex(YYSTYPE*, void * parser);
+void yyerror(const char* s);
 
 %}
 
 %verbose
 %pure_parser
 %error-verbose
+%expect 2
 
 %token T_ELLIPSIS
 %token T_INT8 T_INT16 T_INT32 T_INT64
@@ -36,20 +51,25 @@ extern void yyerror(const char* s);
 %token T_NULL
 %token T_VOID
 %token T_VAR
+%token T_TYPE
+%token T_FUNC
 %token T_CONST
 %token T_STRUCT
 %token T_CLASS
+%token T_INTERFACE
 
 %token T_LNUMBER
 %token T_DNUMBER
 %token T_NAME
 %token T_NEWLINE
-%token T_SLICE
+%token T_FIX
+/* %token T_SLICE */
 
 %left ','
 
-%left T_ASSIGN T_PLUS_ASSIGN T_MINUS_ASSIGN T_MUL_ASSIGN T_DIV_ASSIGN T_CONCAT_ASSIGN T_MOD_ASSIGN T_AND_ASSIGN T_OR_ASSIGN T_XOR_ASSIGN T_LSH_ASSIGN T_RSH_ASSIGN T_POW_ASSIGN
+%left T_ASSIGN T_DECL_ASSIGN T_PLUS_ASSIGN T_MINUS_ASSIGN T_MUL_ASSIGN T_DIV_ASSIGN T_CONCAT_ASSIGN T_MOD_ASSIGN T_AND_ASSIGN T_OR_ASSIGN T_XOR_ASSIGN T_LSH_ASSIGN T_RSH_ASSIGN T_POW_ASSIGN
 %token T_ASSIGN  		"= (T_ASSIGN)"
+%token T_DECL_ASSIGN  	":= (T_DECL_ASSIGN)"
 %token T_PLUS_ASSIGN	"+= (T_PLUS_ASSIGN)"
 %token T_MINUS_ASSIGN	"-= (T_MINUS_ASSIGN)"
 %token T_MUL_ASSIGN		"*= (T_MUL_ASSIGN)"
@@ -72,7 +92,7 @@ extern void yyerror(const char* s);
 %left	T_ANDAND
 %token	T_ANDAND  "&& (T_ANDAND)"
 
-%left	T_EQ T_NE T_LE T_GE T_LT T_GT
+%nonassoc	T_EQ T_NE T_LE T_GE T_LT T_GT
 %token	T_EQ	"== (T_EQ)"
 %token	T_NE	"!= (T_NE)"
 %token	T_LE	"<= (T_LE)"
@@ -101,21 +121,32 @@ extern void yyerror(const char* s);
 %nonassoc T_IS
 %token T_IS  "is (T_IS)"
 
-%right T_NOT T_TILDE T_AT T_INC T_DEC T_UNARY
+%right T_NOT T_TILDE T_INC T_DEC T_UNARY
 %token T_NOT	"! (T_NOT)"
 %token T_TILDE	"~ (T_TILDE)"
-%token T_AT		"@ (T_AT)"
 %token T_INC	"++ (T_INC)"
 %token T_DEC	"-- (T_DEC)"
 %token T_UNARY
 
-%right '[' 
+%right '['
 
 %left	T_DOT
 %token	T_DOT	". (T_DOT)"
 
+%right	T_AT 
+%token 	T_AT	"@ (T_AT)"
+
 %token	T_INDIRECT	"* (T_INDIRECT)"
 %token	T_ADDR		"& (T_ADDR)"
+%token	T_INDEX		"[] (T_INDEX)"
+
+/* manual override of shift/reduce conflicts */
+%left 	T_PTR
+%left 	T_ARR
+%left	T_DOTNAME
+%left		NotParen
+%left		'('
+%left		')'
 
 /*
 %destructor { delete $$; } <data>
@@ -126,85 +157,242 @@ extern void yyerror(const char* s);
 %%
 
 file:
-	statement_list	{ yoParserEnd(&$$, parm); }
-;
+		top_statement_list	{ yoParserEnd(&$$, parm); }
+	|	/* empty */	{ yoParseEmpty(&$$, parm); yoParserEnd(&$$, parm); }
+	|	error		{ yoParserError(&$$, parm); yyerrok; }
 
-statement_list: 
-		statement_list statement	{ yoParserStatementList(&$$, &$1, &$2, parm); }
-	|	/* empty */
-;
-
-statement: 
-		T_NAME T_ASSIGN expr end_statement	{ yoParserBinOp(&$$, &$1, &$3, T_ASSIGN, parm); }
-	|	type T_NAME end_statement { yoParserDeclVar(&$$, &$1, &$2, parm); }
-	|	type T_NAME T_ASSIGN expr end_statement { 
-				yoParserDeclVar(&$1, &$1, &$2, parm); 
-				yoParserBinOp(&$3, &$2, &$4, T_ASSIGN, parm); 
-				yoParserStatementList(&$$, &$1, &$3, parm);
-			}
-;
-
-type:
-		type_name			{ yoParserTypeSpec(&$$, &$1, YO_TYPE_SPEC_VALUE, parm); }
-	|	type_name T_MUL		{ yoParserTypeSpec(&$$, &$1, YO_TYPE_SPEC_PTR, parm); }
-	|	type_name T_SLICE	{ yoParserTypeSpec(&$$, &$1, YO_TYPE_SPEC_SLICE, parm); }
-	|	type_name '[' T_LNUMBER ']'	{ yoParserTypeArray(&$$, &$1, &$3, parm); }
-;
-
-type_name:
-		std_type_name	{ $$ = $1; }
-	|	T_NAME			{ yoParserTypeName(&$$, &$1, parm); }
-	|	T_NAME T_DOT T_NAME	{ yoParserPkgTypeName(&$$, &$1, &$3, parm); }
-;
-
-std_type_name:
-		T_INT8		{ yoParserStdTypeName(&$$, T_INT8, parm); }
-	|	T_INT16		{ yoParserStdTypeName(&$$, T_INT16, parm); }
-	|	T_INT32		{ yoParserStdTypeName(&$$, T_INT32, parm); }
-	|	T_INT64		{ yoParserStdTypeName(&$$, T_INT64, parm); }
-	|	T_UINT8		{ yoParserStdTypeName(&$$, T_UINT8, parm); }
-	|	T_UINT16	{ yoParserStdTypeName(&$$, T_UINT16, parm); }
-	|	T_UINT32	{ yoParserStdTypeName(&$$, T_UINT32, parm); }
-	|	T_UINT64	{ yoParserStdTypeName(&$$, T_UINT64, parm); }
-	|	T_UINTPTR	{ yoParserStdTypeName(&$$, T_UINTPTR, parm); }
-	|	T_STRING	{ yoParserStdTypeName(&$$, T_STRING, parm); }
-	|	T_FLOAT32	{ yoParserStdTypeName(&$$, T_FLOAT32, parm); }
-	|	T_FLOAT64	{ yoParserStdTypeName(&$$, T_FLOAT64, parm); }
-	|	T_BOOL		{ yoParserStdTypeName(&$$, T_BOOL, parm); }
-	|	T_VOID		{ yoParserStdTypeName(&$$, T_VOID, parm); }
-;
+newline:
+	T_NEWLINE	{ yoParserNewLine(parm); yoParseEmpty(&$$, parm); }
 
 end_statement:
-		T_NEWLINE	{ yoParserNewLine(parm); }
-	|	';'
-	|	/* empty */
-;
+		newline
+	|	';'			{ yoParseEmpty(&$$, parm); }
 
-expr: 
+top_statement_list: 
+		top_statement
+	|	top_statement_list top_statement { yoParserList(&$$, &$1, &$2, parm); }
+
+name_list:
+		T_NAME
+	|	name_list ',' T_NAME	{ yoParserList(&$$, &$1, &$3, parm); }
+
+top_decl_var:
+		T_VAR name_list type	{ yoParserDeclVar(&$$, &$2, &$3, parm); }
+	|	T_VAR name_list type T_ASSIGN expr_list {
+				yoParserDeclVar(&$1, &$2, &$3, parm); 
+				yoParserBinOp(&$2, &$2, &$5, T_ASSIGN, parm); 
+				yoParserList(&$$, &$1, &$2, parm);
+			}
+
+decl_type:
+		T_TYPE T_NAME type_ext	{ yoParserDeclType(&$$, &$2, &$3, parm); }
+			
+top_statement:
+		top_decl_var end_statement
+	|	decl_type end_statement
+	|	name_list T_ASSIGN expr_list end_statement	{ yoParserBinOp(&$$, &$1, &$3, T_ASSIGN, parm); }
+	|	top_decl_func end_statement
+	|	newline
+
+statement_list:
+		statement
+	|	statement_list statement { yoParserList(&$$, &$1, &$2, parm); }
+
+statement:
+		top_statement
+
+/*
+real_dotname:
+		T_NAME T_DOT T_NAME		{ yoParserDotName(&$$, &$1, &$3, parm); }
+	|	dotname T_DOT T_NAME	{ yoParserDotName(&$$, &$1, &$3, parm); }
+*/
+
+/*
+name:
+		T_NAME %prec NotParen	{ $$ = $1; }
+*/
+
+dotname:
+		T_NAME
+	|	dotname T_DOT T_NAME	{ yoParserDotName(&$$, &$1, &$3, parm); }
+	
+type_interface_empty:
+		T_INTERFACE '{' '}'	{ yoParseEmpty(&$1, parm); yoParserInterface(&$$, &$1, parm); }
+		
+type_interface:
+		type_interface_empty
+	|	T_INTERFACE '{' interface_body '}'	{ yoParserInterface(&$$, &$3, parm); }
+
+interface_body:
+		interface_decl_func
+	|	interface_body interface_decl_func	{ yoParserList(&$$, &$1, &$2, parm); }
+
+interface_decl_func:
+		T_NAME '(' decl_arg_list_or_empty ')' end_statement	{ yoParserInterfaceFunc(&$$, &$1, &$3, NULL, parm); }
+	|	T_NAME '(' decl_arg_list_or_empty ')' type end_statement	{ yoParserInterfaceFunc(&$$, &$1, &$3, &$5, parm); }
+	|	T_NAME '(' decl_arg_list_or_empty ')' '(' type_list ')' end_statement	{ yoParserInterfaceFunc(&$$, &$1, &$3, &$6, parm); }
+	|	newline
+
+type_class:
+		T_CLASS '{' class_body '}'	{ yoParserClass(&$$, &$3, parm); }
+/*	|	T_CLASS '{' '}'	{ yoParseEmpty(&$1, parm); yoParserClass(&$$, &$1, parm); } */
+
+class_body_stmt:
+		decl_arg_list end_statement
+	|	newline
+	
+class_body_stmt_list:
+		class_body_stmt
+	|	class_body_stmt_list class_body_stmt	{ yoParserList(&$$, &$1, &$2, parm); }
+	
+class_body:
+		class_body_stmt_list
+	|	/* empty */		{ yoParseEmpty(&$$, parm); }
+	
+type_base:	
+		type_name
+	|	type_ptr
+	|	type_slice
+	|	type_arr
+	|	type_func
+	
+type_ext:
+		type_base
+	|	type_interface
+	|	type_class
+			
+top_decl_func:
+		T_FUNC decl_self dotname '(' decl_arg_list_or_empty ')' '{' func_body '}'		
+			{ yoParserDeclFunc(&$$, &$2, &$3, &$5, NULL, &$8, parm); }
+	|	T_FUNC decl_self dotname '(' decl_arg_list_or_empty ')' type '{' func_body '}'	
+			{ yoParserDeclFunc(&$$, &$2, &$3, &$5, &$7, &$9, parm); }
+	|	T_FUNC decl_self dotname '(' decl_arg_list_or_empty ')' '(' type_list ')' '{' func_body '}'	
+			{ yoParserDeclFunc(&$$, &$2, &$3, &$5, &$8, &$11, parm); }
+
+decl_self:
+		'(' T_NAME type_name ')'		{ yoParserDeclArg(&$$, &$2, &$3, parm); }
+	|	'(' T_NAME T_MUL type_name ')'	{ yoParserTypePtr(&$3, &$4, parm); yoParserDeclArg(&$$, &$2, &$3, parm); }
+	|	/* empty */		{ yoParseEmpty(&$$, parm); }
+			
+decl_arg_list_or_empty:
+		decl_arg_list
+	|	/* empty */		{ yoParseEmpty(&$$, parm); }
+
+decl_arg_list:
+		decl_arg
+	|	decl_arg_list ',' decl_arg	{ yoParserList(&$$, &$1, &$3, parm); }
+
+decl_arg:
+		name_list type	{ yoParserDeclArg(&$$, &$1, &$2, parm); }
+
+func_body:
+		statement_list
+	|	/* empty */		{ yoParseEmpty(&$$, parm); }
+
+type_list:
+		type
+	|	type_list ',' type	{ yoParserList(&$$, &$1, &$3, parm); }
+
+decl_self_nop:	
+		/* empty */		{ yoParseEmpty(&$$, parm); }
+	
+type_func:
+		T_FUNC decl_self_nop '(' decl_arg_list_or_empty ')'			{ yoParserTypeFunc(&$$, &$2, &$4, NULL, parm); }
+	|	T_FUNC decl_self_nop '(' decl_arg_list_or_empty ')' type	{ yoParserTypeFunc(&$$, &$2, &$4, &$6, parm); }
+	|	T_FUNC decl_self_nop '(' decl_arg_list_or_empty ')' '(' type_list ')'	{ yoParserTypeFunc(&$$, &$2, &$4, &$7, parm); }
+
+type:
+		type_base
+	|	type_interface_empty
+
+type_ptr:
+		T_MUL type	{ yoParserTypePtr(&$$, &$2, parm); }
+	|	T_POW type	{ yoParserTypePtr(&$$, &$2, parm); yoParserTypePtr(&$$, &$$, parm); }
+/*
+		type T_MUL %prec T_PTR	{ yoParserTypePtr(&$$, &$1, parm); }
+	|	type T_POW %prec T_PTR	{ yoParserTypePtr(&$$, &$1, parm); yoParserTypePtr(&$$, &$$, parm); }
+*/
+
+type_slice:
+		'[' ']' type %prec T_ARR	{ yoParserTypeSlice(&$$, &$3, parm); }
+
+type_arr_size:
+		T_LNUMBER
+	|	dotname
+
+type_arr:
+		'[' type_arr_size ']' type %prec T_ARR	{ yoParserTypeArr(&$$, &$2, &$4, parm); }
+
+type_name:
+		type_std_name
+	|	dotname	{ yoParserTypeName(&$$, &$1, parm); }
+
+type_std_name:
+		T_INT8		{ yoParserTypeStdName(&$$, T_INT8, parm); }
+	|	T_INT16		{ yoParserTypeStdName(&$$, T_INT16, parm); }
+	|	T_INT32		{ yoParserTypeStdName(&$$, T_INT32, parm); }
+	|	T_INT64		{ yoParserTypeStdName(&$$, T_INT64, parm); }
+	|	T_UINT8		{ yoParserTypeStdName(&$$, T_UINT8, parm); }
+	|	T_UINT16	{ yoParserTypeStdName(&$$, T_UINT16, parm); }
+	|	T_UINT32	{ yoParserTypeStdName(&$$, T_UINT32, parm); }
+	|	T_UINT64	{ yoParserTypeStdName(&$$, T_UINT64, parm); }
+	|	T_UINTPTR	{ yoParserTypeStdName(&$$, T_UINTPTR, parm); }
+	|	T_STRING	{ yoParserTypeStdName(&$$, T_STRING, parm); }
+	|	T_FLOAT32	{ yoParserTypeStdName(&$$, T_FLOAT32, parm); }
+	|	T_FLOAT64	{ yoParserTypeStdName(&$$, T_FLOAT64, parm); }
+	|	T_BOOL		{ yoParserTypeStdName(&$$, T_BOOL, parm); }
+	|	T_VOID		{ yoParserTypeStdName(&$$, T_VOID, parm); }
+
+expr_const_scalar:
 		T_TRUE		{ yoParserConst(&$$, T_TRUE, parm); }
 	|	T_FALSE		{ yoParserConst(&$$, T_FALSE, parm); }
 	|	T_NULL		{ yoParserConst(&$$, T_NULL, parm); }
-	|	T_LNUMBER	{ $$ = $1; }
-	| 	T_DNUMBER	{ $$ = $1; }
-	| 	T_NAME		{ $$ = $1; }
-	| 	uexpr		{ $$ = $1; }
+	|	T_LNUMBER
+	| 	T_DNUMBER
+
+expr_list:
+		expr
+	|	expr_list ',' expr		{ yoParserList(&$$, &$1, &$3, parm); }
+
+expr_arr:
+		'{' '}'				{ yoParserNewArr(&$$, parm); }
+	|	'{' expr_list '}'	{ yoParserNewArrExps(&$$, &$2, parm); }
+
+expr_obj:
+		dotname '{' '}'			{ yoParserNewObj(&$$, &$1, parm); }
+	|	dotname '{' expr_list '}'	{ yoParserNewObjExps(&$$, &$1, &$3, parm); }
+	|	dotname '{' prop_assing_list '}'	{ yoParserNewObjProps(&$$, &$1, &$3, parm); }
+
+prop_assing_list:
+		prop_assing
+	|	prop_assing_list ',' prop_assing	{ yoParserList(&$$, &$1, &$3, parm); }
+
+prop_assing:
+		dotname T_ASSIGN expr			{ yoParserBinOp(&$$, &$1, &$3, T_ASSIGN, parm); }
+
+expr:
+		expr_const_scalar
+	|	expr_arr
+	|	expr_obj
+	| 	dotname
+	| 	uexpr
 	|	expr T_PLUS expr	{ yoParserBinOp(&$$, &$1, &$3, T_PLUS, parm); }
 	|	expr T_MINUS expr	{ yoParserBinOp(&$$, &$1, &$3, T_MINUS, parm); }
 	|	expr T_MUL expr		{ yoParserBinOp(&$$, &$1, &$3, T_MUL, parm); }
 	|	expr T_DIV expr		{ yoParserBinOp(&$$, &$1, &$3, T_DIV, parm); }
 	|	expr T_MOD expr		{ yoParserBinOp(&$$, &$1, &$3, T_MOD, parm); }
+	|	expr T_DOT dotname  { yoParserBinOp(&$$, &$1, &$3, T_DOT, parm); }
+	|	expr '[' expr ']'	{ yoParserBinOp(&$$, &$1, &$3, T_INDEX, parm); }
 	|	'(' expr ')'	{ $$ = $2; }
-;
+	|	error 			{ yoParserError(&$$, parm); yyerrok; }
 
 uexpr:
-		T_PLUS	{ yoParserBeginUnaryOp(&$1, T_PLUS, parm); } 		expr %prec T_UNARY { yoParserEndUnaryOp(&$$, &$3, &$1, parm); }
-	|	T_MINUS { yoParserBeginUnaryOp(&$1, T_MINUS, parm); } 		expr %prec T_UNARY { yoParserEndUnaryOp(&$$, &$3, &$1, parm); }
-	|	T_NOT 	{ yoParserBeginUnaryOp(&$1, T_NOT, parm); } 		expr %prec T_UNARY { yoParserEndUnaryOp(&$$, &$3, &$1, parm); }
-	|	T_TILDE { yoParserBeginUnaryOp(&$1, T_TILDE, parm); } 		expr %prec T_UNARY { yoParserEndUnaryOp(&$$, &$3, &$1, parm); }
-	|	T_AT 	{ yoParserBeginUnaryOp(&$1, T_AT, parm); } 			expr %prec T_UNARY { yoParserEndUnaryOp(&$$, &$3, &$1, parm); }
-	|	T_INDIRECT { yoParserBeginUnaryOp(&$1, T_INDIRECT, parm); } expr %prec T_UNARY { yoParserEndUnaryOp(&$$, &$3, &$1, parm); }
-	|	T_ADDR	{ yoParserBeginUnaryOp(&$1, T_ADDR, parm); } 		expr %prec T_UNARY { yoParserEndUnaryOp(&$$, &$3, &$1, parm); }
-;
-
+		T_PLUS	expr %prec T_UNARY	{ yoParserUnaryOp(&$$, &$2, T_PLUS, parm); }
+	|	T_MINUS expr %prec T_UNARY	{ yoParserUnaryOp(&$$, &$2, T_MINUS, parm); }
+	|	T_NOT 	expr %prec T_UNARY	{ yoParserUnaryOp(&$$, &$2, T_NOT, parm); }
+	|	T_TILDE expr %prec T_UNARY	{ yoParserUnaryOp(&$$, &$2, T_TILDE, parm); }
+	|	T_MUL 	expr %prec T_UNARY	{ yoParserUnaryOp(&$$, &$2, T_INDIRECT, parm); }
+	|	T_AND	expr %prec T_UNARY	{ yoParserUnaryOp(&$$, &$2, T_ADDR, parm); }
+/*	|	T_AT  T_NAME %prec T_UNARY	{ yoParserUnaryOp(&$$, &$2, T_AT, parm); } */
 
 %%

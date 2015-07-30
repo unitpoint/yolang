@@ -50,12 +50,13 @@
 # error YO_LEX_LEN_AHEAD should be greater than or equal to YYMAXFILL
 #endif 
 
-extern int yoLexDec(void*, YYSTYPE*);
-extern int yoLexBin(void*, YYSTYPE*);
-extern int yoLexHex(void*, YYSTYPE*);
-extern int yoLexFloat(void*, YYSTYPE*);
-extern int yoLexName(void*, YYSTYPE*);
-extern int yoLexChar(void*, YYSTYPE*);
+int yoLexDec(void*, YYSTYPE*);
+int yoLexBin(void*, YYSTYPE*);
+int yoLexHex(void*, YYSTYPE*);
+int yoLexFloat(void*, YYSTYPE*);
+int yoLexName(void*, YYSTYPE*);
+int yoLexChar(void*, YYSTYPE*);
+void yoLexNewLine(void*);
 
 int yolex(YYSTYPE * parserNode, void * parm)
 {
@@ -78,7 +79,7 @@ DNUM		= ([0-9]*"."[0-9]+)|([0-9]+"."[0-9]*);
 EXPONENT_DNUM = (({LNUM}|{DNUM})[eE][+-]?{LNUM});
 HNUM		= "0x"[0-9a-fA-F]+;
 BNUM		= "0b"[01]+;
-NAME		= [a-zA-Z_\x7f-\xff][a-zA-Z0-9_\x7f-\xff]*;
+NAME		= [a-zA-Z_\x7f-\xff][a-zA-Z0-9_\@\x7f-\xff]*;
 WHITESPACES = [ \n\r\t]+;
 TABS_AND_SPACES = [ \t]+;
 TOKENS		= [;:,.\[\]()|^&+-/*=%!~$<>?@];
@@ -88,6 +89,7 @@ NEWLINE		= ("\r"|"\n"|"\r\n");
 /* compute yyleng before each rule */
 <!*> := yyleng = YYCURSOR - yytext;
 
+<ST_IN_YOLANG>"@" { return T_AT; }
 <ST_IN_YOLANG>"." { return T_DOT; }
 <ST_IN_YOLANG>"+" { return T_PLUS; }
 <ST_IN_YOLANG>"-" { return T_MINUS; }
@@ -98,6 +100,7 @@ NEWLINE		= ("\r"|"\n"|"\r\n");
 <ST_IN_YOLANG>".." { return T_CONCAT; }
 
 <ST_IN_YOLANG>"=" { return T_ASSIGN; }
+<ST_IN_YOLANG>":=" { return T_DECL_ASSIGN; }
 <ST_IN_YOLANG>"+=" { return T_PLUS_ASSIGN; }
 <ST_IN_YOLANG>"-=" { return T_MINUS_ASSIGN; }
 <ST_IN_YOLANG>"*=" { return T_MUL_ASSIGN; }
@@ -124,24 +127,30 @@ NEWLINE		= ("\r"|"\n"|"\r\n");
 <ST_IN_YOLANG>{TABS_AND_SPACES} { goto restart; }
 <ST_IN_YOLANG>{NEWLINE} { return T_NEWLINE; }
 <ST_IN_YOLANG>"..." { return T_ELLIPSIS; }
-<ST_IN_YOLANG>"[]" { return T_SLICE; }
+/* <ST_IN_YOLANG>"[]" { return T_SLICE; } */
 
 <ST_IN_YOLANG>"char" { return T_INT8; }
 <ST_IN_YOLANG>"byte" { return T_INT8; }
 
-<ST_IN_YOLANG>"int8" { return T_INT8; }
+<ST_IN_YOLANG>"int8"  { return T_INT8; }
 <ST_IN_YOLANG>"int16" { return T_INT16; }
 <ST_IN_YOLANG>"int32" { return T_INT32; }
 <ST_IN_YOLANG>"int64" { return T_INT64; }
+<ST_IN_YOLANG>"int"	  { return sizeof(int) == 8 ? T_INT64 : T_INT32; }
 
-<ST_IN_YOLANG>"uint8" { return T_UINT8; }
-<ST_IN_YOLANG>"uint16" { return T_UINT16; }
-<ST_IN_YOLANG>"uint32" { return T_UINT32; }
-<ST_IN_YOLANG>"uint64" { return T_UINT64; }
+<ST_IN_YOLANG>"uint8"	{ return T_UINT8; }
+<ST_IN_YOLANG>"uint16"	{ return T_UINT16; }
+<ST_IN_YOLANG>"uint32"	{ return T_UINT32; }
+<ST_IN_YOLANG>"uint64"	{ return T_UINT64; }
+<ST_IN_YOLANG>"uint"	{ return sizeof(int) == 8 ? T_UINT64 : T_UINT32; }
+
 <ST_IN_YOLANG>"uintptr" { return T_UINTPTR; }
 
 <ST_IN_YOLANG>"float32" { return T_FLOAT32; }
 <ST_IN_YOLANG>"float64" { return T_FLOAT64; }
+
+<ST_IN_YOLANG>"float" 	{ return T_FLOAT32; }
+<ST_IN_YOLANG>"double" 	{ return T_FLOAT64; }
 
 <ST_IN_YOLANG>"string" { return T_STRING; }
 <ST_IN_YOLANG>"bool" { return T_BOOL; }
@@ -151,9 +160,12 @@ NEWLINE		= ("\r"|"\n"|"\r\n");
 
 <ST_IN_YOLANG>"void" { return T_VOID; }
 <ST_IN_YOLANG>"var" { return T_VAR; }
+<ST_IN_YOLANG>"type" { return T_TYPE; }
+<ST_IN_YOLANG>"func" { return T_FUNC; }
 <ST_IN_YOLANG>"const" { return T_CONST; }
 <ST_IN_YOLANG>"struct" { return T_STRUCT; }
 <ST_IN_YOLANG>"class" { return T_CLASS; }
+<ST_IN_YOLANG>"interface" { return T_INTERFACE; }
 
 <ST_IN_YOLANG>{NAME} { return yoLexName(parser, parserNode); }
 <ST_IN_YOLANG>{LNUM} { return yoLexDec(parser, parserNode); }
@@ -163,5 +175,13 @@ NEWLINE		= ("\r"|"\n"|"\r\n");
 
 <ST_IN_YOLANG>{ANY_CHAR} { return yoLexChar(parser, parserNode); }
 
+*/
+
+/*
+comment:
+re2c:yyfill:check = 0;
+<ST_IN_YOLANG>"*?	{ goto restart; } 
+<ST_IN_YOLANG>{NEWLINE} { yoLexNewLine(parser); goto comment; }
+<ST_IN_YOLANG>{ANY_CHAR} { goto comment; }
 */
 }

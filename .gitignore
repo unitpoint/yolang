@@ -8,3 +8,5 @@ win/yolang/ipch/
 *.suo
 *.vcxproj.user
 build
+3rdparty/yolang.output
+
