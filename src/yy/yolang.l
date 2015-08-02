@@ -169,6 +169,7 @@ QUOTE = ["];
 <ST_IN_YOLANG,ST_INJECT>"null" { return T_NULL; }
 
 <ST_IN_YOLANG,ST_INJECT>"void" { return T_VOID; }
+<ST_IN_YOLANG,ST_INJECT>"return" { return T_RETURN; }
 <ST_IN_YOLANG,ST_INJECT>"var" { return T_VAR; }
 <ST_IN_YOLANG,ST_INJECT>"type" { return T_TYPE; }
 <ST_IN_YOLANG,ST_INJECT>"func" { return T_FUNC; }

@@ -6,9 +6,6 @@ func (s * Complex) Init(r, i float64) {
 	s.Real, s.Imag = r, i
 }
 
-func (s * Complex) Abs() float64 {
-	return math.Hypot(s.Real, s.Imag)
-}
 
 func (s * Complex) Asin() complex128 {
 	if s.Imag == 0 {

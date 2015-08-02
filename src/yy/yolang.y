@@ -19,9 +19,9 @@ void yoParserDeclArg(YYSTYPE * r, YYSTYPE * a, YYSTYPE * b, void*);
 void yoParserList(YYSTYPE * r, YYSTYPE * a, YYSTYPE * b, void*);
 void yoParserDotName(YYSTYPE * r, YYSTYPE * a, YYSTYPE * b, void*);
 void yoParserNewArr(YYSTYPE * r, void * parm);
-void yoParserNewArrExps(YYSTYPE * r, YYSTYPE * exp_list, void * parm);
+void yoParserNewArrExps(YYSTYPE * r, YYSTYPE * expr_list, void * parm);
 void yoParserNewObj(YYSTYPE * r, YYSTYPE * name, void * parm);
-void yoParserNewObjExps(YYSTYPE * r, YYSTYPE * name, YYSTYPE * exp_list, void * parm);
+void yoParserNewObjExps(YYSTYPE * r, YYSTYPE * name, YYSTYPE * expr_list, void * parm);
 void yoParserNewObjProps(YYSTYPE * r, YYSTYPE * name, YYSTYPE * prop_list, void * parm);
 void yoParserNewLine(void*);
 void yoParserDeclFunc(YYSTYPE * r, YYSTYPE * self, YYSTYPE * name, YYSTYPE * args, YYSTYPE * type, YYSTYPE * body, void*);
@@ -31,6 +31,8 @@ void yoParserClass(YYSTYPE * r, YYSTYPE * a, void * parm);
 void yoParserDebug(YYSTYPE*, void*);
 void yoParserError(YYSTYPE*, const char*, void*);
 void yoParseEmpty(YYSTYPE*, void*);
+void yoParserCall(YYSTYPE * r, YYSTYPE * name, YYSTYPE * args, void * parm);
+void yoParserStmtReturn(YYSTYPE * r, YYSTYPE * expr, void * parm);
 
 int yolex(YYSTYPE*, void * parser);
 void yyerror(const char* s);
@@ -53,6 +55,7 @@ void yyerror(const char* s);
 %token T_QSTRING_INJECT_EXRP
 %token T_NULL
 %token T_VOID
+%token T_RETURN
 %token T_VAR
 %token T_TYPE
 %token T_FUNC
@@ -162,7 +165,7 @@ void yyerror(const char* s);
 file:
 		top_statement_list	{ yoParserEnd(&$$, parm); }
 	|	/* empty */	{ yoParseEmpty(&$$, parm); yoParserEnd(&$$, parm); }
-	|	error		{ yoParserError(&$$, yymsgbuf, parm); yyerrok; }
+	|	error		{ yoParserError(&$$, yymsgbuf, parm); yyclearin; yyerrok; }
 
 newline:
 	T_NEWLINE	{ yoParserNewLine(parm); yoParseEmpty(&$$, parm); }
@@ -203,6 +206,8 @@ statement_list:
 
 statement:
 		top_statement
+	|	T_RETURN expr_list end_statement	{ yoParserStmtReturn(&$$, &$2, parm); }
+	|	T_RETURN end_statement				{ yoParserStmtReturn(&$$, NULL, parm); }
 
 /*
 real_dotname:
@@ -376,7 +381,7 @@ prop_assing:
 		dotname T_ASSIGN expr			{ yoParserBinOp(&$$, &$1, &$3, T_ASSIGN, parm); }
 
 qstr_with_inject_begin_elem:
-		T_QSTRING_INJECT_EXRP expr { yoParserBinOp(&$$, &$1, &$2, T_CONCAT, parm); }
+		T_QSTRING_INJECT_EXRP expr_base { yoParserBinOp(&$$, &$1, &$2, T_CONCAT, parm); }
 
 qstr_with_inject_begin_list:
 		qstr_with_inject_begin_elem
@@ -400,10 +405,11 @@ expr_base:
 	|	expr T_MUL expr		{ yoParserBinOp(&$$, &$1, &$3, T_MUL, parm); }
 	|	expr T_DIV expr		{ yoParserBinOp(&$$, &$1, &$3, T_DIV, parm); }
 	|	expr T_MOD expr		{ yoParserBinOp(&$$, &$1, &$3, T_MOD, parm); }
+	|	expr T_CONCAT expr	{ yoParserBinOp(&$$, &$1, &$3, T_CONCAT, parm); }
 	|	expr T_DOT dotname  { yoParserBinOp(&$$, &$1, &$3, T_DOT, parm); }
 	|	expr '[' expr ']'	{ yoParserBinOp(&$$, &$1, &$3, T_INDEX, parm); }
-	|	'(' expr ')'	{ $$ = $2; }
-	|	error 			{ yoParserError(&$$, yymsgbuf, parm); yyerrok; }
+	|	'(' expr ')'		{ $$ = $2; }
+	|	call
 
 uexpr:
 		T_PLUS	expr %prec T_UNARY	{ yoParserUnaryOp(&$$, &$2, T_PLUS, parm); }
@@ -413,5 +419,12 @@ uexpr:
 	|	T_MUL 	expr %prec T_UNARY	{ yoParserUnaryOp(&$$, &$2, T_INDIRECT, parm); }
 	|	T_AND	expr %prec T_UNARY	{ yoParserUnaryOp(&$$, &$2, T_ADDR, parm); }
 /*	|	T_AT  T_NAME %prec T_UNARY	{ yoParserUnaryOp(&$$, &$2, T_AT, parm); } */
+
+call:
+		dotname '(' expr_list ')'	{ yoParserCall(&$$, &$1, &$3, parm); }
+	|	expr T_DOT dotname '(' expr_list ')' { 
+			yoParserBinOp(&$$, &$1, &$3, T_DOT, parm);
+			yoParserCall(&$$, &$$, &$5, parm);
+		}
 
 %%

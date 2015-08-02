@@ -493,11 +493,24 @@ static void yoParserDumpNode(YoParserNode * node, int depth, EYoParserNodeScopeT
 		YO_ASSERT(false);
 		break;
 
+	case YO_NODE_CALL:
+		printf("CALL ");
+		yoParserDumpNode(node->data.call.name, depth, YO_NODE_SCOPE_OP);
+		printf("(");
+		yoParserDumpNode(node->data.call.args, depth, YO_NODE_SCOPE_OP);
+		printf(")");
+		break;
+
+	case YO_NODE_STMT_RETURN:
+		printf("RETURN ");
+		yoParserDumpNode(node->data.stmtReturn.node, depth, YO_NODE_SCOPE_OP);
+		break;
+
 	case YO_NODE_SINGLE_QUOTED_STRING:
 		name = (char*)alloca(node->token.len + 1);
 		memcpy(name, node->token.str, node->token.len);
 		name[node->token.len] = '\0';
-		printf("SINGLEQUOTED %s", name);
+		printf("S%s", name);
 		break;
 
 	case YO_NODE_QUOTED_STRING:
@@ -506,7 +519,7 @@ static void yoParserDumpNode(YoParserNode * node, int depth, EYoParserNodeScopeT
 		name[node->token.len] = '\0';
 		name[0] = '\"';
 		name[node->token.len-1] = '\"';
-		printf("QUOTED %s", name);
+		printf("Q%s", name);
 		break;
 
 	case YO_NODE_INT:
@@ -854,12 +867,12 @@ void yoParserNewArr(YYSTYPE * r, void * parm)
 	r->node = node;
 }
 
-void yoParserNewArrExps(YYSTYPE * r, YYSTYPE * exp_list, void * parm)
+void yoParserNewArrExps(YYSTYPE * r, YYSTYPE * expr_list, void * parm)
 {
 	YoParserParams * parser = dynamic_cast<YoParserParams*>((YoParserParams*)parm);
-	YO_ASSERT(exp_list->node);
+	YO_ASSERT(expr_list->node);
 	YoParserNode * node = new YoParserNode(YO_NODE_NEW_ARR_EXPS, parser);
-	node->data.arr.values = exp_list->node;
+	node->data.arr.values = expr_list->node;
 	r->node = node;
 }
 
@@ -872,14 +885,14 @@ void yoParserNewObj(YYSTYPE * r, YYSTYPE * name, void * parm)
 	r->node = node;
 }
 
-void yoParserNewObjExps(YYSTYPE * r, YYSTYPE * name, YYSTYPE * exp_list, void * parm)
+void yoParserNewObjExps(YYSTYPE * r, YYSTYPE * name, YYSTYPE * expr_list, void * parm)
 {
 	YoParserParams * parser = dynamic_cast<YoParserParams*>((YoParserParams*)parm);
 	YO_ASSERT(name->node && (name->node->type == YO_NODE_NAME || name->node->type == YO_NODE_DOTNAME));
-	YO_ASSERT(exp_list->node);
+	YO_ASSERT(expr_list->node);
 	YoParserNode * node = new YoParserNode(YO_NODE_NEW_OBJ_EXPS, parser);
 	node->data.obj.name = name->node;
-	node->data.obj.values = exp_list->node;
+	node->data.obj.values = expr_list->node;
 	r->node = node;
 }
 
@@ -1031,6 +1044,28 @@ void yoParserInterfaceFunc(YYSTYPE * r, YYSTYPE * name, YYSTYPE * args, YYSTYPE 
 	r->node = node;
 }
 
+void yoParserCall(YYSTYPE * r, YYSTYPE * name, YYSTYPE * args, void * parm)
+{
+	YoParserParams * parser = dynamic_cast<YoParserParams*>((YoParserParams*)parm);
+	YO_ASSERT(name->node && (name->node->type == YO_NODE_NAME || name->node->type == YO_NODE_DOTNAME 
+		|| (name->node->type == YO_NODE_BIN_OP && name->node->data.binOp.op == T_DOT)));
+	// YO_ASSERT(args->node && args->node->type == );
+	YoParserNode * node = new YoParserNode(YO_NODE_CALL, parser);
+	node->data.call.name = name->node;
+	node->data.call.args = args->node;
+	node->token = name->node->token;
+	r->node = node;
+}
+
+void yoParserStmtReturn(YYSTYPE * r, YYSTYPE * expr, void * parm)
+{
+	YoParserParams * parser = dynamic_cast<YoParserParams*>((YoParserParams*)parm);
+	YoParserNode * node = new YoParserNode(YO_NODE_STMT_RETURN, parser);
+	node->data.stmtReturn.node = expr ? expr->node : NULL;
+	node->token = expr->node->token;
+	r->node = node;
+}
+
 void yoParserInterface(YYSTYPE * r, YYSTYPE * a, void * parm)
 {
 	YoParserParams * parser = dynamic_cast<YoParserParams*>((YoParserParams*)parm);
@@ -1099,6 +1134,9 @@ void yoParserError(YYSTYPE * r, const char * msg, void * parm)
 		printf(start[i] == '\t' ? "\t" : " ");
 	}
 	printf("^\n");
+
+	r->node = NULL;
+	parser->cursor = parser->limit;
 }
 
 // =====================================================================

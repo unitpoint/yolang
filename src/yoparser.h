@@ -83,8 +83,8 @@ enum EYoParserNodeType {
 	YO_NODE_INTERFACE,
 	YO_NODE_INTERFACE_FUNC,
 	YO_NODE_CLASS,
-	// YO_NODE_STATEMENT,
-	// YO_NODE_STATEMENT_LIST,
+	YO_NODE_STMT_RETURN,
+	YO_NODE_CALL,
 
 	// =========================
 	__YO_NODE_DUMMY__
@@ -176,12 +176,21 @@ struct YoParserNode
 		} func;
 
 		struct {
+			YoParserNode * name;
+			YoParserNode * args;
+		} call;
+
+		struct {
 			YoParserNode * node;
 		} interface;
 
 		struct {
 			YoParserNode * node;
 		} typeClass;
+
+		struct {
+			YoParserNode * node;
+		} stmtReturn;
 	} data;
 
 	YoParserNode(EYoParserNodeType _type, YoParserParams * parser);
