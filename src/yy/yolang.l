@@ -18,7 +18,7 @@
 // #include "yolang-y.h"
 
 #define YYCTYPE   unsigned char
-#define YYFILL(n) { if ((YYCURSOR + n) >= (YYLIMIT + YO_LEX_LEN_AHEAD)) { return 0; } }
+#define YYFILL(n) { if ((YYCURSOR + n) >= (YYLIMIT + YO_LEX_MAXFILL)) { return 0; } }
 #define YYCURSOR  parser->cursor
 #define YYLIMIT   parser->limit
 #define YYMARKER  parser->marker
@@ -30,8 +30,8 @@
 #define yyaccept	 parser->accept
 #endif
 
-#define YYGETCONDITION()  parser->condition
-#define YYSETCONDITION(c) parser->condition = c
+#define YYGETCONDITION()  parser->state
+#define YYSETCONDITION(c) parser->state = c
 
 #define STATE(name)  YO_##name
 
@@ -44,10 +44,10 @@
 #define yymore()     goto yymore_restart
 
 /* perform sanity check. If this message is triggered you should
-   increase the YO_LEX_LEN_AHEAD value in the zend_streams.h file */
+   increase the YO_LEX_MAXFILL value in the zend_streams.h file */
 /*!max:re2c */
-#if YO_LEX_LEN_AHEAD < YYMAXFILL
-# error YO_LEX_LEN_AHEAD should be greater than or equal to YYMAXFILL
+#if YO_LEX_MAXFILL < YYMAXFILL
+# error YO_LEX_MAXFILL should be greater than or equal to YYMAXFILL
 #endif 
 
 int yoLexDec(void*, YYSTYPE*);
@@ -56,7 +56,15 @@ int yoLexHex(void*, YYSTYPE*);
 int yoLexFloat(void*, YYSTYPE*);
 int yoLexName(void*, YYSTYPE*);
 int yoLexChar(void*, YYSTYPE*);
+void yoLexLineComment(void*);
+void yoLexMultiLineComment(void*);
 void yoLexNewLine(void*);
+int yoLexSingleQuotedString(void * parm, YYSTYPE * elem);
+int yoLexQuotedString(void * parm, YYSTYPE * elem);
+int yoLexInjectOpenBrace(void * parm, YYSTYPE*);
+int yoLexInjectCloseBrace(void * parm, YYSTYPE*);
+// void yoLexPushState(void * parm, int state);
+// void yoLexPopState(void * parm, int state);
 
 int yolex(YYSTYPE * parserNode, void * parm)
 {
@@ -85,103 +93,113 @@ TABS_AND_SPACES = [ \t]+;
 TOKENS		= [;:,.\[\]()|^&+-/*=%!~$<>?@];
 ANY_CHAR	= [^];
 NEWLINE		= ("\r"|"\n"|"\r\n");
+SINGLE_QUOTE = ['];
+QUOTE = ["];
 
 /* compute yyleng before each rule */
 <!*> := yyleng = YYCURSOR - yytext;
 
-<ST_IN_YOLANG>"@" { return T_AT; }
-<ST_IN_YOLANG>"." { return T_DOT; }
-<ST_IN_YOLANG>"+" { return T_PLUS; }
-<ST_IN_YOLANG>"-" { return T_MINUS; }
-<ST_IN_YOLANG>"*" { return T_MUL; }
-<ST_IN_YOLANG>"/" { return T_DIV; }
-<ST_IN_YOLANG>"%" { return T_MOD; }
-<ST_IN_YOLANG>"**" { return T_POW; }
-<ST_IN_YOLANG>".." { return T_CONCAT; }
+<ST_IN_YOLANG,ST_INJECT>"@" { return T_AT; }
+<ST_IN_YOLANG,ST_INJECT>"." { return T_DOT; }
+<ST_IN_YOLANG,ST_INJECT>"+" { return T_PLUS; }
+<ST_IN_YOLANG,ST_INJECT>"-" { return T_MINUS; }
+<ST_IN_YOLANG,ST_INJECT>"*" { return T_MUL; }
+<ST_IN_YOLANG,ST_INJECT>"/" { return T_DIV; }
+<ST_IN_YOLANG,ST_INJECT>"%" { return T_MOD; }
+<ST_IN_YOLANG,ST_INJECT>"**" { return T_POW; }
+<ST_IN_YOLANG,ST_INJECT>".." { return T_CONCAT; }
 
-<ST_IN_YOLANG>"=" { return T_ASSIGN; }
-<ST_IN_YOLANG>":=" { return T_DECL_ASSIGN; }
-<ST_IN_YOLANG>"+=" { return T_PLUS_ASSIGN; }
-<ST_IN_YOLANG>"-=" { return T_MINUS_ASSIGN; }
-<ST_IN_YOLANG>"*=" { return T_MUL_ASSIGN; }
-<ST_IN_YOLANG>"/=" { return T_DIV_ASSIGN; }
-<ST_IN_YOLANG>"%=" { return T_MOD_ASSIGN; }
-<ST_IN_YOLANG>"**=" { return T_POW_ASSIGN; }
-<ST_IN_YOLANG>"..=" { return T_CONCAT_ASSIGN; }
+<ST_IN_YOLANG,ST_INJECT>"=" { return T_ASSIGN; }
+<ST_IN_YOLANG,ST_INJECT>":=" { return T_DECL_ASSIGN; }
+<ST_IN_YOLANG,ST_INJECT>"+=" { return T_PLUS_ASSIGN; }
+<ST_IN_YOLANG,ST_INJECT>"-=" { return T_MINUS_ASSIGN; }
+<ST_IN_YOLANG,ST_INJECT>"*=" { return T_MUL_ASSIGN; }
+<ST_IN_YOLANG,ST_INJECT>"/=" { return T_DIV_ASSIGN; }
+<ST_IN_YOLANG,ST_INJECT>"%=" { return T_MOD_ASSIGN; }
+<ST_IN_YOLANG,ST_INJECT>"**=" { return T_POW_ASSIGN; }
+<ST_IN_YOLANG,ST_INJECT>"..=" { return T_CONCAT_ASSIGN; }
 
-<ST_IN_YOLANG>"|" { return T_OR; }
-<ST_IN_YOLANG>"&" { return T_AND; }
-<ST_IN_YOLANG>"^" { return T_XOR; }
+<ST_IN_YOLANG,ST_INJECT>"|" { return T_OR; }
+<ST_IN_YOLANG,ST_INJECT>"&" { return T_AND; }
+<ST_IN_YOLANG,ST_INJECT>"^" { return T_XOR; }
 
-<ST_IN_YOLANG>"||" { return T_OROR; }
-<ST_IN_YOLANG>"&&" { return T_ANDAND; }
-<ST_IN_YOLANG>"^^" { return T_XORXOR; }
+<ST_IN_YOLANG,ST_INJECT>"||" { return T_OROR; }
+<ST_IN_YOLANG,ST_INJECT>"&&" { return T_ANDAND; }
+<ST_IN_YOLANG,ST_INJECT>"^^" { return T_XORXOR; }
 
-<ST_IN_YOLANG>"==" { return T_EQ; }
-<ST_IN_YOLANG>"!=" { return T_NE; }
-<ST_IN_YOLANG>"<=" { return T_LE; }
-<ST_IN_YOLANG>">=" { return T_GE; }
-<ST_IN_YOLANG>"<" { return T_LT; }
-<ST_IN_YOLANG>">" { return T_GT; }
+<ST_IN_YOLANG,ST_INJECT>"==" { return T_EQ; }
+<ST_IN_YOLANG,ST_INJECT>"!=" { return T_NE; }
+<ST_IN_YOLANG,ST_INJECT>"<=" { return T_LE; }
+<ST_IN_YOLANG,ST_INJECT>">=" { return T_GE; }
+<ST_IN_YOLANG,ST_INJECT>"<" { return T_LT; }
+<ST_IN_YOLANG,ST_INJECT>">" { return T_GT; }
 
-<ST_IN_YOLANG>{TABS_AND_SPACES} { goto restart; }
-<ST_IN_YOLANG>{NEWLINE} { return T_NEWLINE; }
-<ST_IN_YOLANG>"..." { return T_ELLIPSIS; }
-/* <ST_IN_YOLANG>"[]" { return T_SLICE; } */
+<ST_IN_YOLANG,ST_INJECT>{TABS_AND_SPACES} { goto restart; }
+<ST_IN_YOLANG,ST_INJECT>{NEWLINE} { return T_NEWLINE; }
+<ST_IN_YOLANG,ST_INJECT>"..." { return T_ELLIPSIS; }
+/* <ST_IN_YOLANG,ST_INJECT>"[]" { return T_SLICE; } */
 
-<ST_IN_YOLANG>"char" { return T_INT8; }
-<ST_IN_YOLANG>"byte" { return T_INT8; }
+<ST_IN_YOLANG,ST_INJECT>"char" { return T_INT8; }
+<ST_IN_YOLANG,ST_INJECT>"byte" { return T_INT8; }
 
-<ST_IN_YOLANG>"int8"  { return T_INT8; }
-<ST_IN_YOLANG>"int16" { return T_INT16; }
-<ST_IN_YOLANG>"int32" { return T_INT32; }
-<ST_IN_YOLANG>"int64" { return T_INT64; }
-<ST_IN_YOLANG>"int"	  { return sizeof(int) == 8 ? T_INT64 : T_INT32; }
+<ST_IN_YOLANG,ST_INJECT>"int8"  { return T_INT8; }
+<ST_IN_YOLANG,ST_INJECT>"int16" { return T_INT16; }
+<ST_IN_YOLANG,ST_INJECT>"int32" { return T_INT32; }
+<ST_IN_YOLANG,ST_INJECT>"int64" { return T_INT64; }
+<ST_IN_YOLANG,ST_INJECT>"int"	  { return sizeof(int) == 8 ? T_INT64 : T_INT32; }
 
-<ST_IN_YOLANG>"uint8"	{ return T_UINT8; }
-<ST_IN_YOLANG>"uint16"	{ return T_UINT16; }
-<ST_IN_YOLANG>"uint32"	{ return T_UINT32; }
-<ST_IN_YOLANG>"uint64"	{ return T_UINT64; }
-<ST_IN_YOLANG>"uint"	{ return sizeof(int) == 8 ? T_UINT64 : T_UINT32; }
+<ST_IN_YOLANG,ST_INJECT>"uint8"	{ return T_UINT8; }
+<ST_IN_YOLANG,ST_INJECT>"uint16"	{ return T_UINT16; }
+<ST_IN_YOLANG,ST_INJECT>"uint32"	{ return T_UINT32; }
+<ST_IN_YOLANG,ST_INJECT>"uint64"	{ return T_UINT64; }
+<ST_IN_YOLANG,ST_INJECT>"uint"	{ return sizeof(int) == 8 ? T_UINT64 : T_UINT32; }
 
-<ST_IN_YOLANG>"uintptr" { return T_UINTPTR; }
+<ST_IN_YOLANG,ST_INJECT>"uintptr" { return T_UINTPTR; }
 
-<ST_IN_YOLANG>"float32" { return T_FLOAT32; }
-<ST_IN_YOLANG>"float64" { return T_FLOAT64; }
+<ST_IN_YOLANG,ST_INJECT>"float32" { return T_FLOAT32; }
+<ST_IN_YOLANG,ST_INJECT>"float64" { return T_FLOAT64; }
 
-<ST_IN_YOLANG>"float" 	{ return T_FLOAT32; }
-<ST_IN_YOLANG>"double" 	{ return T_FLOAT64; }
+<ST_IN_YOLANG,ST_INJECT>"float" 	{ return T_FLOAT32; }
+<ST_IN_YOLANG,ST_INJECT>"double" 	{ return T_FLOAT64; }
 
-<ST_IN_YOLANG>"string" { return T_STRING; }
-<ST_IN_YOLANG>"bool" { return T_BOOL; }
-<ST_IN_YOLANG>"true" { return T_TRUE; }
-<ST_IN_YOLANG>"false" { return T_FALSE; }
-<ST_IN_YOLANG>"null" { return T_NULL; }
+<ST_IN_YOLANG,ST_INJECT>"string" { return T_STRING; }
+<ST_IN_YOLANG,ST_INJECT>"bool" { return T_BOOL; }
+<ST_IN_YOLANG,ST_INJECT>"true" { return T_TRUE; }
+<ST_IN_YOLANG,ST_INJECT>"false" { return T_FALSE; }
+<ST_IN_YOLANG,ST_INJECT>"null" { return T_NULL; }
 
-<ST_IN_YOLANG>"void" { return T_VOID; }
-<ST_IN_YOLANG>"var" { return T_VAR; }
-<ST_IN_YOLANG>"type" { return T_TYPE; }
-<ST_IN_YOLANG>"func" { return T_FUNC; }
-<ST_IN_YOLANG>"const" { return T_CONST; }
-<ST_IN_YOLANG>"struct" { return T_STRUCT; }
-<ST_IN_YOLANG>"class" { return T_CLASS; }
-<ST_IN_YOLANG>"interface" { return T_INTERFACE; }
+<ST_IN_YOLANG,ST_INJECT>"void" { return T_VOID; }
+<ST_IN_YOLANG,ST_INJECT>"var" { return T_VAR; }
+<ST_IN_YOLANG,ST_INJECT>"type" { return T_TYPE; }
+<ST_IN_YOLANG,ST_INJECT>"func" { return T_FUNC; }
+<ST_IN_YOLANG,ST_INJECT>"const" { return T_CONST; }
+<ST_IN_YOLANG,ST_INJECT>"struct" { return T_STRUCT; }
+<ST_IN_YOLANG,ST_INJECT>"class" { return T_CLASS; }
+<ST_IN_YOLANG,ST_INJECT>"interface" { return T_INTERFACE; }
 
-<ST_IN_YOLANG>{NAME} { return yoLexName(parser, parserNode); }
-<ST_IN_YOLANG>{LNUM} { return yoLexDec(parser, parserNode); }
-<ST_IN_YOLANG>{BNUM} { return yoLexBin(parser, parserNode); }
-<ST_IN_YOLANG>{HNUM} { return yoLexHex(parser, parserNode); }
-<ST_IN_YOLANG>{DNUM}|{EXPONENT_DNUM} { return yoLexFloat(parser, parserNode); }
+<ST_IN_YOLANG,ST_INJECT>{NAME} { return yoLexName(parser, parserNode); }
+<ST_IN_YOLANG,ST_INJECT>{LNUM} { return yoLexDec(parser, parserNode); }
+<ST_IN_YOLANG,ST_INJECT>{BNUM} { return yoLexBin(parser, parserNode); }
+<ST_IN_YOLANG,ST_INJECT>{HNUM} { return yoLexHex(parser, parserNode); }
+<ST_IN_YOLANG,ST_INJECT>{DNUM}|{EXPONENT_DNUM} { return yoLexFloat(parser, parserNode); }
 
-<ST_IN_YOLANG>{ANY_CHAR} { return yoLexChar(parser, parserNode); }
+<ST_IN_YOLANG,ST_INJECT>"//" { yoLexLineComment(parser); goto restart; }
+<ST_IN_YOLANG,ST_INJECT>"/*" { yoLexMultiLineComment(parser); goto restart; }
+
+<ST_IN_YOLANG,ST_INJECT>{SINGLE_QUOTE} { return yoLexSingleQuotedString(parser, parserNode); }
+<ST_IN_YOLANG,ST_INJECT>{QUOTE}	{ return yoLexQuotedString(parser, parserNode); }
+<ST_INJECT>"{"	{ return yoLexInjectOpenBrace(parser, parserNode); }
+<ST_INJECT>"}"	{ return yoLexInjectCloseBrace(parser, parserNode); }
+
+<ST_IN_YOLANG,ST_INJECT>{ANY_CHAR} { return yoLexChar(parser, parserNode); }
 
 */
 
 /*
 comment:
 re2c:yyfill:check = 0;
-<ST_IN_YOLANG>"*?	{ goto restart; } 
-<ST_IN_YOLANG>{NEWLINE} { yoLexNewLine(parser); goto comment; }
-<ST_IN_YOLANG>{ANY_CHAR} { goto comment; }
+<ST_IN_YOLANG,ST_INJECT>"*?	{ goto restart; } 
+<ST_IN_YOLANG,ST_INJECT>{NEWLINE} { yoLexNewLine(parser); goto comment; }
+<ST_IN_YOLANG,ST_INJECT>{ANY_CHAR} { goto comment; }
 */
 }

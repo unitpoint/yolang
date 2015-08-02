@@ -29,7 +29,7 @@ void yoParserInterfaceFunc(YYSTYPE * r, YYSTYPE * name, YYSTYPE * args, YYSTYPE 
 void yoParserInterface(YYSTYPE * r, YYSTYPE * a, void * parm);
 void yoParserClass(YYSTYPE * r, YYSTYPE * a, void * parm);
 void yoParserDebug(YYSTYPE*, void*);
-void yoParserError(YYSTYPE*, void*);
+void yoParserError(YYSTYPE*, const char*, void*);
 void yoParseEmpty(YYSTYPE*, void*);
 
 int yolex(YYSTYPE*, void * parser);
@@ -48,6 +48,9 @@ void yyerror(const char* s);
 %token T_FLOAT32 T_FLOAT64
 %token T_STRING
 %token T_BOOL T_TRUE T_FALSE
+%token T_SSTRING T_SSTRING_NOT_FINISHED
+%token T_QSTRING T_QSTRING_NOT_FINISHED
+%token T_QSTRING_INJECT_EXRP
 %token T_NULL
 %token T_VOID
 %token T_VAR
@@ -159,7 +162,7 @@ void yyerror(const char* s);
 file:
 		top_statement_list	{ yoParserEnd(&$$, parm); }
 	|	/* empty */	{ yoParseEmpty(&$$, parm); yoParserEnd(&$$, parm); }
-	|	error		{ yoParserError(&$$, parm); yyerrok; }
+	|	error		{ yoParserError(&$$, yymsgbuf, parm); yyerrok; }
 
 newline:
 	T_NEWLINE	{ yoParserNewLine(parm); yoParseEmpty(&$$, parm); }
@@ -349,6 +352,8 @@ expr_const_scalar:
 	|	T_NULL		{ yoParserConst(&$$, T_NULL, parm); }
 	|	T_LNUMBER
 	| 	T_DNUMBER
+	|	T_SSTRING
+	|	T_QSTRING
 
 expr_list:
 		expr
@@ -370,7 +375,21 @@ prop_assing_list:
 prop_assing:
 		dotname T_ASSIGN expr			{ yoParserBinOp(&$$, &$1, &$3, T_ASSIGN, parm); }
 
+qstr_with_inject_begin_elem:
+		T_QSTRING_INJECT_EXRP expr { yoParserBinOp(&$$, &$1, &$2, T_CONCAT, parm); }
+
+qstr_with_inject_begin_list:
+		qstr_with_inject_begin_elem
+	|	qstr_with_inject_begin_list qstr_with_inject_begin_elem { yoParserBinOp(&$$, &$1, &$2, T_CONCAT, parm); }
+
+qstr_with_inject:
+		qstr_with_inject_begin_list T_QSTRING { yoParserBinOp(&$$, &$1, &$2, T_CONCAT, parm); }
+		
 expr:
+		expr_base
+	|	qstr_with_inject
+		
+expr_base:
 		expr_const_scalar
 	|	expr_arr
 	|	expr_obj
@@ -384,7 +403,7 @@ expr:
 	|	expr T_DOT dotname  { yoParserBinOp(&$$, &$1, &$3, T_DOT, parm); }
 	|	expr '[' expr ']'	{ yoParserBinOp(&$$, &$1, &$3, T_INDEX, parm); }
 	|	'(' expr ')'	{ $$ = $2; }
-	|	error 			{ yoParserError(&$$, parm); yyerrok; }
+	|	error 			{ yoParserError(&$$, yymsgbuf, parm); yyerrok; }
 
 uexpr:
 		T_PLUS	expr %prec T_UNARY	{ yoParserUnaryOp(&$$, &$2, T_PLUS, parm); }

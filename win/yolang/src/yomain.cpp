@@ -23,14 +23,15 @@ void main()
 	fseek(f, 0, SEEK_END);
 	int size = ftell(f);
 	fseek(f, 0, SEEK_SET);
-	char * buf = new char[size+1];
+	char * buf = new char[size + 1 + YO_LEX_MAXFILL];
 	if (!buf) {
 		printf("error malloc %d bytes\n", size);
 		fclose(f);
 		exit(1);
 	}
 	fread(buf, size, 1, f);
-	buf[size] = '\0';
+	memset(buf + size, 0, 1 + YO_LEX_MAXFILL);
+	// buf[size] = '\0';
 	fclose(f);
 
 	YoParserParams parser;

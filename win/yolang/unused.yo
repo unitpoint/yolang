@@ -2,22 +2,22 @@ type Complex class {
 	Real, Imag float64	
 }
 
-func Complex.Init(r, i float64) {
-	@Real, @Imag = r, i
+func (s * Complex) Init(r, i float64) {
+	s.Real, s.Imag = r, i
 }
 
-func Complex.Abs() float64 {
-	return math.Hypot(@Real, @Imag)
+func (s * Complex) Abs() float64 {
+	return math.Hypot(s.Real, s.Imag)
 }
 
-func Complex.Asin() complex128 {
-	if @Imag == 0 {
-		if math.Abs(@Real) > 1 {
+func (s * Complex) Asin() complex128 {
+	if s.Imag == 0 {
+		if math.Abs(s.Real) > 1 {
 			return Complex(math.Pi/2, 0) // DOMAIN error
 		}
-		return Complex(math.Asin(@Real), 0)
+		return Complex(math.Asin(s.Real), 0)
 	}
-	ct := Complex(-@Imag, @Real) // i * x
+	ct := Complex(-s.Imag, s.Real) // i * x
 	xx := x * x
 	x1 := Complex(1-xx.Real, -xx.Imag) // 1 - x*x
 	x2 := x1.Sqrt()                       // x2 = sqrt(1 - x*x)

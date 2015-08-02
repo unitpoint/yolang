@@ -8,7 +8,7 @@
 #define YYLEX_PARAM parm
 #define YYSTYPE YoParserStackElement
 
-#define YO_LEX_LEN_AHEAD 10
+#define YO_LEX_MAXFILL 10
 
 #include "yolang-l.h"
 #include "yolang-y.h"
@@ -16,6 +16,15 @@
 struct YoParserNode;
 
 struct YoParserParams {
+
+	struct LexState {
+		int state;
+		int braceCount;
+		const char * text;
+		LexState * next;
+	};
+	LexState * lexStateStack;
+
 	const char * input;
 	// int inputLen;
 	const char * limit;
@@ -23,8 +32,9 @@ struct YoParserParams {
 	const char * lineStart;
 	int line;
 
+	int braceCount;
 	int state;
-	int condition;
+	// int condition;
 	unsigned char ch;
 	int accept;
 	const char * cursor;
@@ -32,6 +42,7 @@ struct YoParserParams {
 	int textLen;
 	const char * marker;
 
+	int listSize;
 	YoParserNode * list;
 	YoParserNode * root;
 
@@ -39,6 +50,9 @@ struct YoParserParams {
 	void init(const char * input, int len);
 	void shutdown();
 	void dump();
+
+	void pushState(int newState, const char * text);
+	void popState();
 };
 
 enum EYoParserNodeType {
@@ -50,6 +64,8 @@ enum EYoParserNodeType {
 	YO_NODE_BIN_OP,
 	YO_NODE_UNARY_OP,
 	YO_NODE_CONST,
+	YO_NODE_SINGLE_QUOTED_STRING,
+	YO_NODE_QUOTED_STRING,
 	YO_NODE_TYPE_STD_NAME,
 	YO_NODE_TYPE_NAME,
 	YO_NODE_TYPE_PTR,

@@ -9,7 +9,7 @@
 // int yywrap() { return 1; }
 
 void yoerror(const char* s) {
-	fprintf(stderr, "Parse error: %s\n", s);
+	// fprintf(stderr, "Parse error: %s\n", s);
 	// exit(1);
 }
 
@@ -234,10 +234,159 @@ int yoLexName(void * parm, YYSTYPE * elem)
 	return T_NAME;
 }
 
-int yoLexChar(void * parm, YYSTYPE * node)
+int yoLexChar(void * parm, YYSTYPE * elem)
 {
 	YoParserParams * parser = dynamic_cast<YoParserParams*>((YoParserParams*)parm);
 	return parser->text[0];
+}
+
+int yoLexSingleQuotedString(void * parm, YYSTYPE * elem)
+{
+	YoParserParams * parser = dynamic_cast<YoParserParams*>((YoParserParams*)parm);
+	YO_ASSERT(parser->text[0] == '\'');
+	YO_ASSERT(parser->text + 1 == parser->cursor);
+	int line = parser->line;
+	const char * lineStart = parser->lineStart;
+	while (parser->cursor < parser->limit) {
+		if (parser->cursor[0] == '\\') {
+			parser->cursor += 2;
+			if (parser->cursor > parser->limit) {
+				parser->cursor = parser->limit;
+			}
+			continue;
+		}
+		if (parser->cursor[0] == '\'') {
+			parser->cursor++;
+			parser->textLen = parser->cursor - parser->text;
+			YoParserNode * node = new YoParserNode(YO_NODE_SINGLE_QUOTED_STRING, parser);
+			elem->node = node;
+			return T_SSTRING;
+		}
+		if (parser->cursor[0] == '\n') {
+			parser->line++;
+			parser->lineStart = parser->cursor + 1;
+		}
+		else if (parser->cursor[0] == '\r' && parser->cursor + 1 < parser->limit && parser->cursor[1] == '\n'){
+			parser->line++;
+			parser->lineStart = parser->cursor + 2;
+			parser->cursor++;
+		}
+		parser->cursor++;
+	}
+	elem->node = NULL;
+	parser->line = line;
+	parser->lineStart = lineStart;
+	return T_SSTRING_NOT_FINISHED;
+}
+
+int yoLexQuotedString(void * parm, YYSTYPE * elem)
+{
+	YoParserParams * parser = dynamic_cast<YoParserParams*>((YoParserParams*)parm);
+	YO_ASSERT(parser->text[0] == '\"' || parser->text[0] == '}');
+	YO_ASSERT(parser->text + 1 == parser->cursor);
+	int line = parser->line;
+	const char * lineStart = parser->lineStart;
+	while (parser->cursor < parser->limit) {
+		if (parser->cursor[0] == '\\') {
+			parser->cursor += 2;
+			if (parser->cursor > parser->limit) {
+				parser->cursor = parser->limit;
+			}
+			continue;
+		}
+		if (parser->cursor[0] == '\"') {
+			parser->cursor++;
+			parser->textLen = parser->cursor - parser->text;
+			YoParserNode * node = new YoParserNode(YO_NODE_QUOTED_STRING, parser);
+			elem->node = node;
+			return T_QSTRING;
+		}
+		if (parser->cursor[0] == '$' && parser->cursor + 1 < parser->limit && parser->cursor[1] == '{'){
+			parser->cursor++;
+			parser->textLen = parser->cursor - parser->text;
+			YoParserNode * node = new YoParserNode(YO_NODE_QUOTED_STRING, parser);
+			elem->node = node;
+			parser->cursor++;
+			parser->pushState(yycST_INJECT, parser->text);
+			parser->braceCount++;
+			return T_QSTRING_INJECT_EXRP;
+		}
+		if (parser->cursor[0] == '\n') {
+			parser->line++;
+			parser->lineStart = parser->cursor + 1;
+		}
+		else if (parser->cursor[0] == '\r' && parser->cursor + 1 < parser->limit && parser->cursor[1] == '\n'){
+			parser->line++;
+			parser->lineStart = parser->cursor + 2;
+			parser->cursor++;
+		}
+		parser->cursor++;
+	}
+	elem->node = NULL;
+	parser->line = line;
+	parser->lineStart = lineStart;
+	return T_QSTRING_NOT_FINISHED;
+}
+
+int yoLexInjectOpenBrace(void * parm, YYSTYPE * elem)
+{
+	YoParserParams * parser = dynamic_cast<YoParserParams*>((YoParserParams*)parm);
+	parser->braceCount++;
+	elem->node = NULL;
+	return parser->text[0];
+}
+
+int yoLexInjectCloseBrace(void * parm, YYSTYPE * elem)
+{
+	YoParserParams * parser = dynamic_cast<YoParserParams*>((YoParserParams*)parm);
+	YO_ASSERT(parser->braceCount > 0);
+	parser->braceCount--;
+	if (parser->lexStateStack) {
+		if (parser->lexStateStack->braceCount == parser->braceCount) {
+			parser->popState();
+			return yoLexQuotedString(parm, elem);
+		}
+	}
+	else{
+		YO_ASSERT(false);
+	}
+	elem->node = NULL;
+	return parser->text[0];
+}
+
+void yoLexLineComment(void * parm)
+{
+	YoParserParams * parser = dynamic_cast<YoParserParams*>((YoParserParams*)parm);
+	while (parser->cursor < parser->limit) {
+		if (parser->cursor[0] == '\n') {
+			break;
+		}
+		if (parser->cursor[0] == '\r' && parser->cursor + 1 < parser->limit && parser->cursor[1] == '\n') {
+			break;
+		}
+		parser->cursor++;
+	}
+}
+
+void yoLexMultiLineComment(void * parm)
+{
+	YoParserParams * parser = dynamic_cast<YoParserParams*>((YoParserParams*)parm);
+	while (parser->cursor+1 < parser->limit) {
+		if (parser->cursor[0] == '*' && parser->cursor[1] == '/') {
+			parser->cursor += 2;
+			break;
+		}
+		if (parser->cursor[0] == '\n') {
+			parser->line++;
+			parser->lineStart = parser->cursor + 1;
+		}
+		else if (parser->cursor[0] == '\r' && parser->cursor[1] == '\n'){
+			parser->line++;
+			parser->lineStart = parser->cursor + 2;
+			parser->cursor++;
+		}
+		parser->cursor++;
+	}
 }
 
 // =====================================================================
@@ -255,25 +404,60 @@ void YoParserParams::init(const char * _input, int len)
 	limit = input + len;
 	lineStart = input;
 	line = 1;
+	lexStateStack = NULL;
+	braceCount = 0;
 	state = yycST_IN_YOLANG;
-	condition = 0;
+	// condition = 0;
 	ch = 0;
 	accept = 0;
 	cursor = input;
 	text = input;
 	textLen = 0;
 	marker = input;
+	listSize = 0;
 	list = NULL;
 	root = NULL;
 }
 
 void YoParserParams::shutdown()
 {
+	YO_ASSERT(!lexStateStack);
+	while (lexStateStack) {
+		LexState * lexState = lexStateStack;
+		lexStateStack = lexState->next;
+		lexState->next = NULL;
+		delete lexState;
+	}
 	while (list) {
 		YoParserNode * node = list;
 		list = node->parserNext;
 		node->parserNext = NULL;
 		delete node;
+	}
+}
+
+void YoParserParams::pushState(int newState, const char * text)
+{
+	YoParserParams::LexState * lexState = new YoParserParams::LexState();
+	lexState->state = state;
+	lexState->text = text;
+	lexState->braceCount = braceCount;
+	lexState->next = lexStateStack;
+	lexStateStack = lexState;
+	state = newState;
+}
+
+void YoParserParams::popState()
+{
+	if (lexStateStack) {
+		YoParserParams::LexState * lexState = lexStateStack;
+		lexStateStack = lexState->next;
+		state = lexState->state;
+		lexState->next = NULL;
+		delete lexState;
+	}
+	else{
+		YO_ASSERT(false);
 	}
 }
 
@@ -307,6 +491,22 @@ static void yoParserDumpNode(YoParserNode * node, int depth, EYoParserNodeScopeT
 	switch (node->type) {
 	default:
 		YO_ASSERT(false);
+		break;
+
+	case YO_NODE_SINGLE_QUOTED_STRING:
+		name = (char*)alloca(node->token.len + 1);
+		memcpy(name, node->token.str, node->token.len);
+		name[node->token.len] = '\0';
+		printf("SINGLEQUOTED %s", name);
+		break;
+
+	case YO_NODE_QUOTED_STRING:
+		name = (char*)alloca(node->token.len + 1);
+		memcpy(name, node->token.str, node->token.len);
+		name[node->token.len] = '\0';
+		name[0] = '\"';
+		name[node->token.len-1] = '\"';
+		printf("QUOTED %s", name);
 		break;
 
 	case YO_NODE_INT:
@@ -515,6 +715,7 @@ YoParserNode::YoParserNode(EYoParserNodeType _type, YoParserParams * parser)
 	type = _type;
 	parserNext = parser->list;
 	parser->list = this;
+	parser->listSize++;
 	token.str = parser->text;
 	token.len = parser->textLen;
 	token.line = parser->line;
@@ -854,7 +1055,7 @@ void yoParserDebug(YYSTYPE * r, void * parm)
 	int i = 0;
 }
 
-void yoParserError(YYSTYPE * r, void * parm)
+void yoParserError(YYSTYPE * r, const char * msg, void * parm)
 {
 	YoParserParams * parser = dynamic_cast<YoParserParams*>((YoParserParams*)parm);
 	const char * cursor = parser->text;
@@ -866,6 +1067,9 @@ void yoParserError(YYSTYPE * r, void * parm)
 	const char * start = cursor - 40;
 	if (start < parser->lineStart) {
 		start = parser->lineStart;
+		if (start > parser->text) {
+			start = parser->text;
+		}
 	}
 	while (*start <= ' ' && start < end) start++;
 	if (start > parser->lineStart) {
@@ -881,6 +1085,7 @@ void yoParserError(YYSTYPE * r, void * parm)
 	memcpy(sub, start, len);
 	sub[len] = '\0';
 
+	printf("Parse error: %s\n", msg);
 	printf("Error at line: %d, pos: %d\n", parser->line, (int)(cursor - parser->lineStart));
 	printf("%s%s%s\n", startCut ? "..." : "", sub, endCut ? "..." : "");
 

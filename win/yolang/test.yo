@@ -8,16 +8,21 @@ func test3(a int32) ([]int32, *[][20]*[10]***interface{}) {}
 
 type Finder interface { 
 	Find(x, y int32, a, b, c []string) float64
-	Split(a Array) (float32, float32, byte)
+	Split(a Array) (float32, float32, byte)		// line comment
 }
 
 type Callback func (x, y, z float32) float32
 
 type Complex class {
-	Real, Imag float64	
+	Real, Imag float64
+	
+	/*
+		test multiline comment
+		type ... Callback func (x, y, z float32) float32
+	*/
 }
 
 func test3(a int32) {
-	var x, y, z int32 = *&obj.a.b[1], *&obj[1].a.b + true * 1.2, 25 + abc
-	var x data = *&obj.a.b[1], *&obj[1].a.b + true * 1.2, 25 + abc
+	var x, y, z int32 = *&obj.a.b[1], *&obj[1].a.b + true * 1.2, 25 + "size: ${2+3}, count: ${count+1}"
+	var x data = *&obj.a.b[1], *&obj[1].a.b + true * 1.2, 25 + 'abc'
 }
