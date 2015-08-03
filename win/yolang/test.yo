@@ -23,6 +23,15 @@ type Complex class {
 }
 
 func (s * Complex) Abs() float64 {
+	if a + 1 {
+		return 3
+	} else if a + 1 {
+		return 3
+	} elseif a + 1 {
+		return 3
+	} else {
+		return 3
+	}
 	return math.Hypot(s.Real, s.Imag)
 }
 

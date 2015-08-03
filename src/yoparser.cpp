@@ -240,6 +240,42 @@ int yoLexChar(void * parm, YYSTYPE * elem)
 	return parser->text[0];
 }
 
+void yoParserEnableBrace(void * parm)
+{
+	YoParserParams * parser = dynamic_cast<YoParserParams*>((YoParserParams*)parm);
+	YO_ASSERT(!parser->braceEnabled);
+	parser->braceEnabled = true;
+}
+
+int yoLexOpenBrace(void * parm)
+{
+	YoParserParams * parser = dynamic_cast<YoParserParams*>((YoParserParams*)parm);
+	YO_ASSERT(parser->text[0] == '{');
+	if (parser->braceEnabled) {
+		parser->braceEnabled = false;
+		return T_BRACE;
+	}
+	return '{';
+}
+
+int yoLexOpenBracket(void * parm)
+{
+	YoParserParams * parser = dynamic_cast<YoParserParams*>((YoParserParams*)parm);
+	if (parser->braceEnabled) {
+		parser->pushBrace();
+	}
+	return parser->text[0];
+}
+
+int yoLexCloseBracket(void * parm)
+{
+	YoParserParams * parser = dynamic_cast<YoParserParams*>((YoParserParams*)parm);
+	if (parser->lexBraceStack) {
+		parser->popBrace();
+	}
+	return parser->text[0];
+}
+
 int yoLexSingleQuotedString(void * parm, YYSTYPE * elem)
 {
 	YoParserParams * parser = dynamic_cast<YoParserParams*>((YoParserParams*)parm);
@@ -405,8 +441,10 @@ void YoParserParams::init(const char * _input, int len)
 	lineStart = input;
 	line = 1;
 	lexStateStack = NULL;
+	lexBraceStack = NULL;
+	braceEnabled = false;
 	braceCount = 0;
-	state = yycST_IN_YOLANG;
+	state = yycST_YOLANG;
 	// condition = 0;
 	ch = 0;
 	accept = 0;
@@ -461,13 +499,41 @@ void YoParserParams::popState()
 	}
 }
 
+void YoParserParams::pushBrace()
+{
+	YoParserParams::LexBrace * lexBrace = new YoParserParams::LexBrace();
+	lexBrace->braceEnabled = braceEnabled;
+	lexBrace->next = lexBraceStack;
+	lexBraceStack = lexBrace;
+	braceEnabled = false;
+}
+
+void YoParserParams::popBrace()
+{
+	if (lexBraceStack) {
+		YoParserParams::LexBrace * lexBrace = lexBraceStack;
+		lexBraceStack = lexBrace->next;
+		braceEnabled = lexBrace->braceEnabled;
+		lexBrace->next = NULL;
+		delete lexBrace;
+	}
+}
+
 enum EYoParserNodeScopeType {
 	YO_NODE_SCOPE_STATEMENT,
+	YO_NODE_SCOPE_ELEM,
 	YO_NODE_SCOPE_OP,
 	YO_NODE_SCOPE_PROPS,
 	YO_NODE_SCOPE_TYPE,
 	YO_NODE_SCOPE_DOTNAME,
 };
+
+static void printDepth(int depth)
+{
+	for (int i = 0; i < depth; i++) {
+		printf("  ");
+	}
+}
 
 static void yoParserDumpNode(YoParserNode * node, int depth, EYoParserNodeScopeType scope)
 {
@@ -480,9 +546,7 @@ static void yoParserDumpNode(YoParserNode * node, int depth, EYoParserNodeScopeT
 	yoParserDumpNode(node->prev, depth, scope);
 
 	if (scope == YO_NODE_SCOPE_STATEMENT) {
-		for (i = 0; i < depth; i++) {
-			printf("  ");
-		}
+		printDepth(depth);
 	}
 	else if (node->prev) {
 		printf(", ");
@@ -491,6 +555,38 @@ static void yoParserDumpNode(YoParserNode * node, int depth, EYoParserNodeScopeT
 	switch (node->type) {
 	default:
 		YO_ASSERT(false);
+		break;
+
+	case YO_NODE_STMT_IF:
+		printf("IF ");
+		yoParserDumpNode(node->data.stmtIf.ifExpr, depth, YO_NODE_SCOPE_OP);
+		printf(" {\n");
+		yoParserDumpNode(node->data.stmtIf.thenStmt, depth + 1, YO_NODE_SCOPE_STATEMENT);
+		printDepth(depth); printf("}");
+		yoParserDumpNode(node->data.stmtIf.elseIfList, depth, YO_NODE_SCOPE_ELEM);
+		yoParserDumpNode(node->data.stmtIf.elseStmt, depth, YO_NODE_SCOPE_ELEM);
+		// printf("\n");
+		break;
+
+	case YO_NODE_ELSEIF:
+		printf("%sELSE IF ", scope == YO_NODE_SCOPE_ELEM ? " " : "");
+		yoParserDumpNode(node->data.elseIfElem.expr, depth, YO_NODE_SCOPE_OP);
+		printf(" {\n");
+		yoParserDumpNode(node->data.elseIfElem.node, depth + 1, YO_NODE_SCOPE_STATEMENT);
+		printDepth(depth); printf("}");
+		break;
+
+	case YO_NODE_ELSE:
+		printf("%sELSE {\n", scope == YO_NODE_SCOPE_ELEM ? " " : "");
+		yoParserDumpNode(node->data.elseElem.node, depth + 1, YO_NODE_SCOPE_STATEMENT);
+		printDepth(depth); printf("}");
+		break;
+
+	case YO_NODE_ELSEIF_LIST:
+		printf(" ELSE IF LIST {\n");
+		yoParserDumpNode(node->data.elseIfList.nodes[0], depth + 1, YO_NODE_SCOPE_STATEMENT);
+		yoParserDumpNode(node->data.elseIfList.nodes[1], depth + 1, YO_NODE_SCOPE_STATEMENT);
+		printDepth(depth); printf("}");
 		break;
 
 	case YO_NODE_CALL:
@@ -1063,6 +1159,47 @@ void yoParserStmtReturn(YYSTYPE * r, YYSTYPE * expr, void * parm)
 	YoParserNode * node = new YoParserNode(YO_NODE_STMT_RETURN, parser);
 	node->data.stmtReturn.node = expr ? expr->node : NULL;
 	node->token = expr->node->token;
+	r->node = node;
+}
+
+void yoParserStmtIf(YYSTYPE * r, YYSTYPE * ifExpr, YYSTYPE * thenStmt, YYSTYPE * elseIfList, YYSTYPE * elseStmt, void * parm)
+{
+	YoParserParams * parser = dynamic_cast<YoParserParams*>((YoParserParams*)parm);
+	YoParserNode * node = new YoParserNode(YO_NODE_STMT_IF, parser);
+	node->data.stmtIf.ifExpr = ifExpr->node;
+	node->data.stmtIf.thenStmt = thenStmt->node;
+	node->data.stmtIf.elseIfList = elseIfList->node;
+	node->data.stmtIf.elseStmt = elseStmt->node;
+	node->token = ifExpr->node->token;
+	r->node = node;
+}
+
+void yoParserElseIfList(YYSTYPE * r, YYSTYPE * a, YYSTYPE * b, void * parm)
+{
+	YoParserParams * parser = dynamic_cast<YoParserParams*>((YoParserParams*)parm);
+	YoParserNode * node = new YoParserNode(YO_NODE_ELSEIF_LIST, parser);
+	node->data.elseIfList.nodes[0] = a->node;
+	node->data.elseIfList.nodes[1] = b->node;
+	node->token = a->node->token;
+	r->node = node;
+}
+
+void yoParserElseIf(YYSTYPE * r, YYSTYPE * expr, YYSTYPE * stmt, void * parm)
+{
+	YoParserParams * parser = dynamic_cast<YoParserParams*>((YoParserParams*)parm);
+	YoParserNode * node = new YoParserNode(YO_NODE_ELSEIF, parser);
+	node->data.elseIfElem.expr = expr->node;
+	node->data.elseIfElem.node = stmt->node;
+	node->token = expr->node->token;
+	r->node = node;
+}
+
+void yoParserElse(YYSTYPE * r, YYSTYPE * stmt, void * parm)
+{
+	YoParserParams * parser = dynamic_cast<YoParserParams*>((YoParserParams*)parm);
+	YoParserNode * node = new YoParserNode(YO_NODE_ELSE, parser);
+	node->data.elseElem.node = stmt->node;
+	node->token = stmt->node->token;
 	r->node = node;
 }
 

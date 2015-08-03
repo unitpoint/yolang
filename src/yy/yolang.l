@@ -63,8 +63,9 @@ int yoLexSingleQuotedString(void * parm, YYSTYPE * elem);
 int yoLexQuotedString(void * parm, YYSTYPE * elem);
 int yoLexInjectOpenBrace(void * parm, YYSTYPE*);
 int yoLexInjectCloseBrace(void * parm, YYSTYPE*);
-// void yoLexPushState(void * parm, int state);
-// void yoLexPopState(void * parm, int state);
+int yoLexOpenBrace(void * parm);
+int yoLexOpenBracket(void * parm);
+int yoLexCloseBracket(void * parm);
 
 int yolex(YYSTYPE * parserNode, void * parm)
 {
@@ -94,113 +95,123 @@ TOKENS		= [;:,.\[\]()|^&+-/*=%!~$<>?@];
 ANY_CHAR	= [^];
 NEWLINE		= ("\r"|"\n"|"\r\n");
 SINGLE_QUOTE = ['];
-QUOTE = ["];
+QUOTE 		= ["];
+OPEN_BRACKET	= ("("|"{");
+CLOSE_BRACKET	= (")"|"}");
 
 /* compute yyleng before each rule */
 <!*> := yyleng = YYCURSOR - yytext;
 
-<ST_IN_YOLANG,ST_INJECT>"@" { return T_AT; }
-<ST_IN_YOLANG,ST_INJECT>"." { return T_DOT; }
-<ST_IN_YOLANG,ST_INJECT>"+" { return T_PLUS; }
-<ST_IN_YOLANG,ST_INJECT>"-" { return T_MINUS; }
-<ST_IN_YOLANG,ST_INJECT>"*" { return T_MUL; }
-<ST_IN_YOLANG,ST_INJECT>"/" { return T_DIV; }
-<ST_IN_YOLANG,ST_INJECT>"%" { return T_MOD; }
-<ST_IN_YOLANG,ST_INJECT>"**" { return T_POW; }
-<ST_IN_YOLANG,ST_INJECT>".." { return T_CONCAT; }
+<ST_YOLANG,ST_INJECT>"@" { return T_AT; }
+<ST_YOLANG,ST_INJECT>"." { return T_DOT; }
+<ST_YOLANG,ST_INJECT>"+" { return T_PLUS; }
+<ST_YOLANG,ST_INJECT>"-" { return T_MINUS; }
+<ST_YOLANG,ST_INJECT>"*" { return T_MUL; }
+<ST_YOLANG,ST_INJECT>"/" { return T_DIV; }
+<ST_YOLANG,ST_INJECT>"%" { return T_MOD; }
+<ST_YOLANG,ST_INJECT>"**" { return T_POW; }
+<ST_YOLANG,ST_INJECT>".." { return T_CONCAT; }
 
-<ST_IN_YOLANG,ST_INJECT>"=" { return T_ASSIGN; }
-<ST_IN_YOLANG,ST_INJECT>":=" { return T_DECL_ASSIGN; }
-<ST_IN_YOLANG,ST_INJECT>"+=" { return T_PLUS_ASSIGN; }
-<ST_IN_YOLANG,ST_INJECT>"-=" { return T_MINUS_ASSIGN; }
-<ST_IN_YOLANG,ST_INJECT>"*=" { return T_MUL_ASSIGN; }
-<ST_IN_YOLANG,ST_INJECT>"/=" { return T_DIV_ASSIGN; }
-<ST_IN_YOLANG,ST_INJECT>"%=" { return T_MOD_ASSIGN; }
-<ST_IN_YOLANG,ST_INJECT>"**=" { return T_POW_ASSIGN; }
-<ST_IN_YOLANG,ST_INJECT>"..=" { return T_CONCAT_ASSIGN; }
+<ST_YOLANG,ST_INJECT>"=" { return T_ASSIGN; }
+<ST_YOLANG,ST_INJECT>":=" { return T_DECL_ASSIGN; }
+<ST_YOLANG,ST_INJECT>"+=" { return T_PLUS_ASSIGN; }
+<ST_YOLANG,ST_INJECT>"-=" { return T_MINUS_ASSIGN; }
+<ST_YOLANG,ST_INJECT>"*=" { return T_MUL_ASSIGN; }
+<ST_YOLANG,ST_INJECT>"/=" { return T_DIV_ASSIGN; }
+<ST_YOLANG,ST_INJECT>"%=" { return T_MOD_ASSIGN; }
+<ST_YOLANG,ST_INJECT>"**=" { return T_POW_ASSIGN; }
+<ST_YOLANG,ST_INJECT>"..=" { return T_CONCAT_ASSIGN; }
 
-<ST_IN_YOLANG,ST_INJECT>"|" { return T_OR; }
-<ST_IN_YOLANG,ST_INJECT>"&" { return T_AND; }
-<ST_IN_YOLANG,ST_INJECT>"^" { return T_XOR; }
+<ST_YOLANG,ST_INJECT>"|" { return T_OR; }
+<ST_YOLANG,ST_INJECT>"&" { return T_AND; }
+<ST_YOLANG,ST_INJECT>"^" { return T_XOR; }
 
-<ST_IN_YOLANG,ST_INJECT>"||" { return T_OROR; }
-<ST_IN_YOLANG,ST_INJECT>"&&" { return T_ANDAND; }
-<ST_IN_YOLANG,ST_INJECT>"^^" { return T_XORXOR; }
+<ST_YOLANG,ST_INJECT>"||" { return T_OROR; }
+<ST_YOLANG,ST_INJECT>"&&" { return T_ANDAND; }
+<ST_YOLANG,ST_INJECT>"^^" { return T_XORXOR; }
 
-<ST_IN_YOLANG,ST_INJECT>"==" { return T_EQ; }
-<ST_IN_YOLANG,ST_INJECT>"!=" { return T_NE; }
-<ST_IN_YOLANG,ST_INJECT>"<=" { return T_LE; }
-<ST_IN_YOLANG,ST_INJECT>">=" { return T_GE; }
-<ST_IN_YOLANG,ST_INJECT>"<" { return T_LT; }
-<ST_IN_YOLANG,ST_INJECT>">" { return T_GT; }
+<ST_YOLANG,ST_INJECT>"==" { return T_EQ; }
+<ST_YOLANG,ST_INJECT>"!=" { return T_NE; }
+<ST_YOLANG,ST_INJECT>"<=" { return T_LE; }
+<ST_YOLANG,ST_INJECT>">=" { return T_GE; }
+<ST_YOLANG,ST_INJECT>"<" { return T_LT; }
+<ST_YOLANG,ST_INJECT>">" { return T_GT; }
 
-<ST_IN_YOLANG,ST_INJECT>{TABS_AND_SPACES} { goto restart; }
-<ST_IN_YOLANG,ST_INJECT>{NEWLINE} { return T_NEWLINE; }
-<ST_IN_YOLANG,ST_INJECT>"..." { return T_ELLIPSIS; }
-/* <ST_IN_YOLANG,ST_INJECT>"[]" { return T_SLICE; } */
+<ST_YOLANG,ST_INJECT>{TABS_AND_SPACES} { goto restart; }
+<ST_YOLANG,ST_INJECT>{NEWLINE} { return T_NEWLINE; }
+<ST_YOLANG,ST_INJECT>"..." { return T_ELLIPSIS; }
+/* <ST_YOLANG,ST_INJECT>"[]" { return T_SLICE; } */
 
-<ST_IN_YOLANG,ST_INJECT>"char" { return T_INT8; }
-<ST_IN_YOLANG,ST_INJECT>"byte" { return T_INT8; }
+<ST_YOLANG,ST_INJECT>"char" { return T_INT8; }
+<ST_YOLANG,ST_INJECT>"byte" { return T_INT8; }
 
-<ST_IN_YOLANG,ST_INJECT>"int8"  { return T_INT8; }
-<ST_IN_YOLANG,ST_INJECT>"int16" { return T_INT16; }
-<ST_IN_YOLANG,ST_INJECT>"int32" { return T_INT32; }
-<ST_IN_YOLANG,ST_INJECT>"int64" { return T_INT64; }
-<ST_IN_YOLANG,ST_INJECT>"int"	  { return sizeof(int) == 8 ? T_INT64 : T_INT32; }
+<ST_YOLANG,ST_INJECT>"int8"  { return T_INT8; }
+<ST_YOLANG,ST_INJECT>"int16" { return T_INT16; }
+<ST_YOLANG,ST_INJECT>"int32" { return T_INT32; }
+<ST_YOLANG,ST_INJECT>"int64" { return T_INT64; }
+<ST_YOLANG,ST_INJECT>"int"	  { return sizeof(int) == 8 ? T_INT64 : T_INT32; }
 
-<ST_IN_YOLANG,ST_INJECT>"uint8"	{ return T_UINT8; }
-<ST_IN_YOLANG,ST_INJECT>"uint16"	{ return T_UINT16; }
-<ST_IN_YOLANG,ST_INJECT>"uint32"	{ return T_UINT32; }
-<ST_IN_YOLANG,ST_INJECT>"uint64"	{ return T_UINT64; }
-<ST_IN_YOLANG,ST_INJECT>"uint"	{ return sizeof(int) == 8 ? T_UINT64 : T_UINT32; }
+<ST_YOLANG,ST_INJECT>"uint8"	{ return T_UINT8; }
+<ST_YOLANG,ST_INJECT>"uint16"	{ return T_UINT16; }
+<ST_YOLANG,ST_INJECT>"uint32"	{ return T_UINT32; }
+<ST_YOLANG,ST_INJECT>"uint64"	{ return T_UINT64; }
+<ST_YOLANG,ST_INJECT>"uint"	{ return sizeof(int) == 8 ? T_UINT64 : T_UINT32; }
 
-<ST_IN_YOLANG,ST_INJECT>"uintptr" { return T_UINTPTR; }
+<ST_YOLANG,ST_INJECT>"uintptr" { return T_UINTPTR; }
 
-<ST_IN_YOLANG,ST_INJECT>"float32" { return T_FLOAT32; }
-<ST_IN_YOLANG,ST_INJECT>"float64" { return T_FLOAT64; }
+<ST_YOLANG,ST_INJECT>"float32" { return T_FLOAT32; }
+<ST_YOLANG,ST_INJECT>"float64" { return T_FLOAT64; }
 
-<ST_IN_YOLANG,ST_INJECT>"float" 	{ return T_FLOAT32; }
-<ST_IN_YOLANG,ST_INJECT>"double" 	{ return T_FLOAT64; }
+<ST_YOLANG,ST_INJECT>"float" 	{ return T_FLOAT32; }
+<ST_YOLANG,ST_INJECT>"double" 	{ return T_FLOAT64; }
 
-<ST_IN_YOLANG,ST_INJECT>"string" { return T_STRING; }
-<ST_IN_YOLANG,ST_INJECT>"bool" { return T_BOOL; }
-<ST_IN_YOLANG,ST_INJECT>"true" { return T_TRUE; }
-<ST_IN_YOLANG,ST_INJECT>"false" { return T_FALSE; }
-<ST_IN_YOLANG,ST_INJECT>"null" { return T_NULL; }
+<ST_YOLANG,ST_INJECT>"string" { return T_STRING; }
+<ST_YOLANG,ST_INJECT>"bool" { return T_BOOL; }
+<ST_YOLANG,ST_INJECT>"true" { return T_TRUE; }
+<ST_YOLANG,ST_INJECT>"false" { return T_FALSE; }
+<ST_YOLANG,ST_INJECT>"null" { return T_NULL; }
 
-<ST_IN_YOLANG,ST_INJECT>"void" { return T_VOID; }
-<ST_IN_YOLANG,ST_INJECT>"return" { return T_RETURN; }
-<ST_IN_YOLANG,ST_INJECT>"var" { return T_VAR; }
-<ST_IN_YOLANG,ST_INJECT>"type" { return T_TYPE; }
-<ST_IN_YOLANG,ST_INJECT>"func" { return T_FUNC; }
-<ST_IN_YOLANG,ST_INJECT>"const" { return T_CONST; }
-<ST_IN_YOLANG,ST_INJECT>"struct" { return T_STRUCT; }
-<ST_IN_YOLANG,ST_INJECT>"class" { return T_CLASS; }
-<ST_IN_YOLANG,ST_INJECT>"interface" { return T_INTERFACE; }
+<ST_YOLANG,ST_INJECT>"void" { return T_VOID; }
+<ST_YOLANG,ST_INJECT>"return" { return T_RETURN; }
+<ST_YOLANG,ST_INJECT>"var" { return T_VAR; }
+<ST_YOLANG,ST_INJECT>"type" { return T_TYPE; }
+<ST_YOLANG,ST_INJECT>"func" { return T_FUNC; }
+<ST_YOLANG,ST_INJECT>"const" { return T_CONST; }
+<ST_YOLANG,ST_INJECT>"struct" { return T_STRUCT; }
+<ST_YOLANG,ST_INJECT>"class" { return T_CLASS; }
+<ST_YOLANG,ST_INJECT>"interface" { return T_INTERFACE; }
+<ST_YOLANG,ST_INJECT>"if" { return T_IF; }
+<ST_YOLANG,ST_INJECT>"else" { return T_ELSE; }
+<ST_YOLANG,ST_INJECT>"elseif" { return T_ELSEIF; }
 
-<ST_IN_YOLANG,ST_INJECT>{NAME} { return yoLexName(parser, parserNode); }
-<ST_IN_YOLANG,ST_INJECT>{LNUM} { return yoLexDec(parser, parserNode); }
-<ST_IN_YOLANG,ST_INJECT>{BNUM} { return yoLexBin(parser, parserNode); }
-<ST_IN_YOLANG,ST_INJECT>{HNUM} { return yoLexHex(parser, parserNode); }
-<ST_IN_YOLANG,ST_INJECT>{DNUM}|{EXPONENT_DNUM} { return yoLexFloat(parser, parserNode); }
-
-<ST_IN_YOLANG,ST_INJECT>"//" { yoLexLineComment(parser); goto restart; }
-<ST_IN_YOLANG,ST_INJECT>"/*" { yoLexMultiLineComment(parser); goto restart; }
-
-<ST_IN_YOLANG,ST_INJECT>{SINGLE_QUOTE} { return yoLexSingleQuotedString(parser, parserNode); }
-<ST_IN_YOLANG,ST_INJECT>{QUOTE}	{ return yoLexQuotedString(parser, parserNode); }
+<ST_YOLANG>"{"	{ return yoLexOpenBrace(parser); }
 <ST_INJECT>"{"	{ return yoLexInjectOpenBrace(parser, parserNode); }
 <ST_INJECT>"}"	{ return yoLexInjectCloseBrace(parser, parserNode); }
 
-<ST_IN_YOLANG,ST_INJECT>{ANY_CHAR} { return yoLexChar(parser, parserNode); }
+<ST_YOLANG,ST_INJECT>{OPEN_BRACKET}	{ return yoLexOpenBracket(parser); }
+<ST_YOLANG,ST_INJECT>{CLOSE_BRACKET} { return yoLexCloseBracket(parser); }
+
+<ST_YOLANG,ST_INJECT>{NAME} { return yoLexName(parser, parserNode); }
+<ST_YOLANG,ST_INJECT>{LNUM} { return yoLexDec(parser, parserNode); }
+<ST_YOLANG,ST_INJECT>{BNUM} { return yoLexBin(parser, parserNode); }
+<ST_YOLANG,ST_INJECT>{HNUM} { return yoLexHex(parser, parserNode); }
+<ST_YOLANG,ST_INJECT>{DNUM}|{EXPONENT_DNUM} { return yoLexFloat(parser, parserNode); }
+
+<ST_YOLANG,ST_INJECT>"//" { yoLexLineComment(parser); goto restart; }
+<ST_YOLANG,ST_INJECT>"/*" { yoLexMultiLineComment(parser); goto restart; }
+
+<ST_YOLANG,ST_INJECT>{SINGLE_QUOTE} { return yoLexSingleQuotedString(parser, parserNode); }
+<ST_YOLANG,ST_INJECT>{QUOTE}	{ return yoLexQuotedString(parser, parserNode); }
+
+<ST_YOLANG,ST_INJECT>{ANY_CHAR} { return yoLexChar(parser, parserNode); }
 
 */
 
 /*
 comment:
 re2c:yyfill:check = 0;
-<ST_IN_YOLANG,ST_INJECT>"*?	{ goto restart; } 
-<ST_IN_YOLANG,ST_INJECT>{NEWLINE} { yoLexNewLine(parser); goto comment; }
-<ST_IN_YOLANG,ST_INJECT>{ANY_CHAR} { goto comment; }
+<ST_YOLANG,ST_INJECT>"*?	{ goto restart; } 
+<ST_YOLANG,ST_INJECT>{NEWLINE} { yoLexNewLine(parser); goto comment; }
+<ST_YOLANG,ST_INJECT>{ANY_CHAR} { goto comment; }
 */
 }

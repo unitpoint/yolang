@@ -33,6 +33,11 @@ void yoParserError(YYSTYPE*, const char*, void*);
 void yoParseEmpty(YYSTYPE*, void*);
 void yoParserCall(YYSTYPE * r, YYSTYPE * name, YYSTYPE * args, void * parm);
 void yoParserStmtReturn(YYSTYPE * r, YYSTYPE * expr, void * parm);
+void yoParserEnableBrace(void * parm);
+void yoParserStmtIf(YYSTYPE * r, YYSTYPE * ifExpr, YYSTYPE * thenStmt, YYSTYPE * elseIfList, YYSTYPE * elseStmt, void * parm);
+void yoParserElseIfList(YYSTYPE * r, YYSTYPE * a, YYSTYPE * b, void * parm);
+void yoParserElseIf(YYSTYPE * r, YYSTYPE * expr, YYSTYPE * stmt, void * parm);
+void yoParserElse(YYSTYPE * r, YYSTYPE * stmt, void * parm);
 
 int yolex(YYSTYPE*, void * parser);
 void yyerror(const char* s);
@@ -42,7 +47,7 @@ void yyerror(const char* s);
 %verbose
 %pure_parser
 %error-verbose
-%expect 2
+%expect 4
 
 %token T_ELLIPSIS
 %token T_INT8 T_INT16 T_INT32 T_INT64
@@ -63,6 +68,10 @@ void yyerror(const char* s);
 %token T_STRUCT
 %token T_CLASS
 %token T_INTERFACE
+%token T_BRACE
+%token T_IF
+%token T_ELSE
+%token T_ELSEIF
 
 %token T_LNUMBER
 %token T_DNUMBER
@@ -163,20 +172,20 @@ void yyerror(const char* s);
 %%
 
 file:
-		top_statement_list	{ yoParserEnd(&$$, parm); }
+		top_stmt_list	{ yoParserEnd(&$$, parm); }
 	|	/* empty */	{ yoParseEmpty(&$$, parm); yoParserEnd(&$$, parm); }
 	|	error		{ yoParserError(&$$, yymsgbuf, parm); yyclearin; yyerrok; }
 
 newline:
 	T_NEWLINE	{ yoParserNewLine(parm); yoParseEmpty(&$$, parm); }
 
-end_statement:
+end_stmt:
 		newline
 	|	';'			{ yoParseEmpty(&$$, parm); }
 
-top_statement_list: 
-		top_statement
-	|	top_statement_list top_statement { yoParserList(&$$, &$1, &$2, parm); }
+top_stmt_list: 
+		top_stmt
+	|	top_stmt_list top_stmt { yoParserList(&$$, &$1, &$2, parm); }
 
 name_list:
 		T_NAME
@@ -193,32 +202,64 @@ top_decl_var:
 decl_type:
 		T_TYPE T_NAME type_ext	{ yoParserDeclType(&$$, &$2, &$3, parm); }
 			
-top_statement:
-		top_decl_var end_statement
-	|	decl_type end_statement
-	|	name_list T_ASSIGN expr_list end_statement	{ yoParserBinOp(&$$, &$1, &$3, T_ASSIGN, parm); }
-	|	top_decl_func end_statement
+top_stmt_no_newline:
+		top_decl_var end_stmt
+	|	decl_type end_stmt
+	|	top_decl_func end_stmt
+
+top_stmt:
+		top_stmt_no_newline
 	|	newline
 
-statement_list:
-		statement
-	|	statement_list statement { yoParserList(&$$, &$1, &$2, parm); }
+ret_stmt:	
+		T_RETURN expr_list end_stmt	{ yoParserStmtReturn(&$$, &$2, parm); }
+	|	T_RETURN end_stmt				{ yoParserStmtReturn(&$$, NULL, parm); }
+	
+/*	
+block_stmt:
+		'{' stmt_list '}'	{ $$ = $2; }
 
-statement:
-		top_statement
-	|	T_RETURN expr_list end_statement	{ yoParserStmtReturn(&$$, &$2, parm); }
-	|	T_RETURN end_statement				{ yoParserStmtReturn(&$$, NULL, parm); }
-
-/*
-real_dotname:
-		T_NAME T_DOT T_NAME		{ yoParserDotName(&$$, &$1, &$3, parm); }
-	|	dotname T_DOT T_NAME	{ yoParserDotName(&$$, &$1, &$3, parm); }
+loop_block:
+		T_OPEN_BRACE stmt_list '}'	{ $$ = $2; }
 */
 
-/*
-name:
-		T_NAME %prec NotParen	{ $$ = $1; }
-*/
+if_header:
+		expr
+	
+brace_stmt:
+		T_BRACE stmt_list '}'	{ $$ = $2; }
+	
+if_stmt:
+		T_IF { yoParserEnableBrace(parm); } if_header brace_stmt elseif_list else { 
+			yoParserStmtIf(&$$, &$3, &$4, &$5, &$6, parm);
+		}
+
+elseif:
+		T_ELSEIF { yoParserEnableBrace(parm); } if_header brace_stmt	{ yoParserElseIf(&$$, &$3, &$4, parm); }
+	|	T_ELSE T_IF { yoParserEnableBrace(parm); } if_header brace_stmt	{ yoParserElseIf(&$$, &$4, &$5, parm); }
+		
+elseif_list:
+		elseif
+	|	elseif_list elseif	{ yoParserElseIfList(&$$, &$1, &$2, parm); }
+	|	/* empty */			{ yoParseEmpty(&$$, parm); }
+		
+else:
+		T_ELSE '{' stmt_list '}'	{ yoParserElse(&$$, &$3, parm); }
+	|	/* empty */					{ yoParseEmpty(&$$, parm); }
+		
+stmt_no_newline:
+		top_stmt_no_newline
+	|	ret_stmt
+	|	if_stmt
+	|	name_list T_ASSIGN expr_list end_stmt	{ yoParserBinOp(&$$, &$1, &$3, T_ASSIGN, parm); }
+
+stmt:
+		stmt_no_newline
+	|	newline
+
+stmt_list:
+		stmt
+	|	stmt_list stmt { yoParserList(&$$, &$1, &$2, parm); }
 
 dotname:
 		T_NAME
@@ -236,9 +277,9 @@ interface_body:
 	|	interface_body interface_decl_func	{ yoParserList(&$$, &$1, &$2, parm); }
 
 interface_decl_func:
-		T_NAME '(' decl_arg_list_or_empty ')' end_statement	{ yoParserInterfaceFunc(&$$, &$1, &$3, NULL, parm); }
-	|	T_NAME '(' decl_arg_list_or_empty ')' type end_statement	{ yoParserInterfaceFunc(&$$, &$1, &$3, &$5, parm); }
-	|	T_NAME '(' decl_arg_list_or_empty ')' '(' type_list ')' end_statement	{ yoParserInterfaceFunc(&$$, &$1, &$3, &$6, parm); }
+		T_NAME '(' decl_arg_list_or_empty ')' end_stmt	{ yoParserInterfaceFunc(&$$, &$1, &$3, NULL, parm); }
+	|	T_NAME '(' decl_arg_list_or_empty ')' type end_stmt	{ yoParserInterfaceFunc(&$$, &$1, &$3, &$5, parm); }
+	|	T_NAME '(' decl_arg_list_or_empty ')' '(' type_list ')' end_stmt	{ yoParserInterfaceFunc(&$$, &$1, &$3, &$6, parm); }
 	|	newline
 
 type_class:
@@ -246,7 +287,7 @@ type_class:
 /*	|	T_CLASS '{' '}'	{ yoParseEmpty(&$1, parm); yoParserClass(&$$, &$1, parm); } */
 
 class_body_stmt:
-		decl_arg_list end_statement
+		decl_arg_list end_stmt
 	|	newline
 	
 class_body_stmt_list:
@@ -294,7 +335,7 @@ decl_arg:
 		name_list type	{ yoParserDeclArg(&$$, &$1, &$2, parm); }
 
 func_body:
-		statement_list
+		stmt_list
 	|	/* empty */		{ yoParseEmpty(&$$, parm); }
 
 type_list:

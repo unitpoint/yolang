@@ -23,7 +23,15 @@ struct YoParserParams {
 		const char * text;
 		LexState * next;
 	};
+	struct LexBrace {
+		bool braceEnabled;
+		LexBrace * next;
+	};
+
 	LexState * lexStateStack;
+
+	LexBrace * lexBraceStack;
+	bool braceEnabled;
 
 	const char * input;
 	// int inputLen;
@@ -53,6 +61,9 @@ struct YoParserParams {
 
 	void pushState(int newState, const char * text);
 	void popState();
+
+	void pushBrace();
+	void popBrace();
 };
 
 enum EYoParserNodeType {
@@ -84,6 +95,10 @@ enum EYoParserNodeType {
 	YO_NODE_INTERFACE_FUNC,
 	YO_NODE_CLASS,
 	YO_NODE_STMT_RETURN,
+	YO_NODE_STMT_IF,
+	YO_NODE_ELSEIF,
+	YO_NODE_ELSEIF_LIST,
+	YO_NODE_ELSE,
 	YO_NODE_CALL,
 
 	// =========================
@@ -191,6 +206,26 @@ struct YoParserNode
 		struct {
 			YoParserNode * node;
 		} stmtReturn;
+
+		struct {
+			YoParserNode * ifExpr;
+			YoParserNode * thenStmt;
+			YoParserNode * elseIfList;
+			YoParserNode * elseStmt;
+		} stmtIf;
+
+		struct {
+			YoParserNode * node;
+		} elseElem;
+
+		struct {
+			YoParserNode * expr;
+			YoParserNode * node;
+		} elseIfElem;
+
+		struct {
+			YoParserNode * nodes[2];
+		} elseIfList;
 	} data;
 
 	YoParserNode(EYoParserNodeType _type, YoParserParams * parser);
