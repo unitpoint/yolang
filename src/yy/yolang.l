@@ -175,6 +175,7 @@ CLOSE_BRACKET	= (")"|"}");
 <ST_YOLANG,ST_INJECT>"return" { return T_RETURN; }
 <ST_YOLANG,ST_INJECT>"var" { return T_VAR; }
 <ST_YOLANG,ST_INJECT>"type" { return T_TYPE; }
+<ST_YOLANG,ST_INJECT>"chan" { return T_CHAN; }
 <ST_YOLANG,ST_INJECT>"func" { return T_FUNC; }
 <ST_YOLANG,ST_INJECT>"const" { return T_CONST; }
 <ST_YOLANG,ST_INJECT>"struct" { return T_STRUCT; }
@@ -183,6 +184,8 @@ CLOSE_BRACKET	= (")"|"}");
 <ST_YOLANG,ST_INJECT>"if" { return T_IF; }
 <ST_YOLANG,ST_INJECT>"else" { return T_ELSE; }
 <ST_YOLANG,ST_INJECT>"elseif" { return T_ELSEIF; }
+<ST_YOLANG,ST_INJECT>"catch" { return T_CATCH; }
+<ST_YOLANG,ST_INJECT>"as" { return T_AS; }
 
 <ST_YOLANG>"{"	{ return yoLexOpenBrace(parser); }
 <ST_INJECT>"{"	{ return yoLexInjectOpenBrace(parser, parserNode); }

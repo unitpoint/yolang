@@ -24,6 +24,7 @@ const char * yoTokenName(int token)
 {
 	switch (token) {
 	case T_ASSIGN: return "=";
+	case T_DECL_ASSIGN: return ":=";
 	case T_XORXOR: return "^^";
 	case T_OROR: return "||";
 	case T_ANDAND: return "&&";
@@ -540,9 +541,7 @@ static void yoParserDumpNode(YoParserNode * node, int depth, EYoParserNodeScopeT
 	if (!node) {
 		return;
 	}
-	int i;
 	char * name;
-
 	yoParserDumpNode(node->prev, depth, scope);
 
 	if (scope == YO_NODE_SCOPE_STATEMENT) {
@@ -563,11 +562,14 @@ static void yoParserDumpNode(YoParserNode * node, int depth, EYoParserNodeScopeT
 		printf(" {\n");
 		yoParserDumpNode(node->data.stmtIf.thenStmt, depth + 1, YO_NODE_SCOPE_STATEMENT);
 		printDepth(depth); printf("}");
-		yoParserDumpNode(node->data.stmtIf.elseIfList, depth, YO_NODE_SCOPE_ELEM);
-		yoParserDumpNode(node->data.stmtIf.elseStmt, depth, YO_NODE_SCOPE_ELEM);
-		// printf("\n");
+		if (node->data.stmtIf.elseStmt) {
+			printf(" ELSE {\n");
+			yoParserDumpNode(node->data.stmtIf.elseStmt, depth + 1, YO_NODE_SCOPE_STATEMENT);
+			printDepth(depth); printf("}");
+		}
 		break;
 
+	/*
 	case YO_NODE_ELSEIF:
 		printf("%sELSE IF ", scope == YO_NODE_SCOPE_ELEM ? " " : "");
 		yoParserDumpNode(node->data.elseIfElem.expr, depth, YO_NODE_SCOPE_OP);
@@ -588,6 +590,7 @@ static void yoParserDumpNode(YoParserNode * node, int depth, EYoParserNodeScopeT
 		yoParserDumpNode(node->data.elseIfList.nodes[1], depth + 1, YO_NODE_SCOPE_STATEMENT);
 		printDepth(depth); printf("}");
 		break;
+	*/
 
 	case YO_NODE_CALL:
 		printf("CALL ");
@@ -595,6 +598,16 @@ static void yoParserDumpNode(YoParserNode * node, int depth, EYoParserNodeScopeT
 		printf("(");
 		yoParserDumpNode(node->data.call.args, depth, YO_NODE_SCOPE_OP);
 		printf(")");
+		break;
+
+	case YO_NODE_STMT_CATCH:
+		printf("STMT CATCH ");
+		yoParserDumpNode(node->data.stmtCatch.stmt, depth, YO_NODE_SCOPE_ELEM);
+		printf(" CATCH ");
+		yoParserDumpNode(node->data.stmtCatch.catchName, depth, YO_NODE_SCOPE_OP);
+		printf(" {\n");
+		yoParserDumpNode(node->data.stmtCatch.catchStmt, depth + 1, YO_NODE_SCOPE_STATEMENT);
+		printDepth(depth); printf("}");
 		break;
 
 	case YO_NODE_STMT_RETURN:
@@ -684,6 +697,22 @@ static void yoParserDumpNode(YoParserNode * node, int depth, EYoParserNodeScopeT
 			printf("TYPE ");
 		}
 		yoParserDumpNode(node->data.typeName.type, depth, YO_NODE_SCOPE_TYPE);
+		break;
+
+	case YO_NODE_TYPE_CONST:
+		if (scope != YO_NODE_SCOPE_TYPE) {
+			printf("TYPE ");
+		}
+		printf("const ");
+		yoParserDumpNode(node->data.typeConst.type, depth, YO_NODE_SCOPE_TYPE);
+		break;
+
+	case YO_NODE_TYPE_CHAN:
+		if (scope != YO_NODE_SCOPE_TYPE) {
+			printf("TYPE ");
+		}
+		printf("chan ");
+		yoParserDumpNode(node->data.typeChan.type, depth, YO_NODE_SCOPE_TYPE);
 		break;
 
 	case YO_NODE_TYPE_PTR:
@@ -920,6 +949,24 @@ void yoParserTypeName(YYSTYPE * r, YYSTYPE * name, void * parm)
 	r->node = node;
 }
 
+void yoParserTypeConst(YYSTYPE * r, YYSTYPE * type, void * parm)
+{
+	YoParserParams * parser = dynamic_cast<YoParserParams*>((YoParserParams*)parm);
+	YO_ASSERT(type->node && type->node->isType());
+	YoParserNode * node = new YoParserNode(YO_NODE_TYPE_CONST, parser);
+	node->data.typeConst.type = type->node;
+	r->node = node;
+}
+
+void yoParserTypeChan(YYSTYPE * r, YYSTYPE * type, void * parm)
+{
+	YoParserParams * parser = dynamic_cast<YoParserParams*>((YoParserParams*)parm);
+	YO_ASSERT(type->node && type->node->isType());
+	YoParserNode * node = new YoParserNode(YO_NODE_TYPE_CHAN, parser);
+	node->data.typeChan.type = type->node;
+	r->node = node;
+}
+
 void yoParserTypePtr(YYSTYPE * r, YYSTYPE * type, void * parm)
 {
 	YoParserParams * parser = dynamic_cast<YoParserParams*>((YoParserParams*)parm);
@@ -940,7 +987,8 @@ void yoParserTypeSlice(YYSTYPE * r, YYSTYPE * type, void * parm)
 
 bool YoParserNode::isType() const
 {
-	return type == YO_NODE_TYPE_NAME || type == YO_NODE_TYPE_STD_NAME
+	return type == YO_NODE_TYPE_NAME || type == YO_NODE_TYPE_STD_NAME 
+		|| type == YO_NODE_TYPE_CONST || type == YO_NODE_TYPE_CHAN
 		|| type == YO_NODE_TYPE_PTR || type == YO_NODE_TYPE_SLICE || type == YO_NODE_TYPE_ARR
 		|| type == YO_NODE_CLASS || type == YO_NODE_INTERFACE || type == YO_NODE_TYPE_FUNC;
 }
@@ -1153,6 +1201,36 @@ void yoParserCall(YYSTYPE * r, YYSTYPE * name, YYSTYPE * args, void * parm)
 	r->node = node;
 }
 
+void yoParserCatchElem(YYSTYPE * r, YYSTYPE * name, YYSTYPE * stmt, void * parm)
+{
+	YoParserParams * parser = dynamic_cast<YoParserParams*>((YoParserParams*)parm);
+	YO_ASSERT(name && name->node && name->node->type == YO_NODE_NAME);
+	YO_ASSERT(stmt && stmt->node);
+	YoParserNode * node = new YoParserNode(YO_NODE_CATCH_ELEM, parser);
+	node->data.stmtCatch.catchName = name->node;
+	node->data.stmtCatch.catchStmt = stmt->node;
+	node->data.stmtCatch.stmt = NULL;
+	node->token = stmt->node->token;
+	r->node = node;
+}
+
+void yoParserStmtCatch(YYSTYPE * r, YYSTYPE * stmt, YYSTYPE * catchElem, void * parm)
+{
+	YoParserParams * parser = dynamic_cast<YoParserParams*>((YoParserParams*)parm);
+	YO_ASSERT(catchElem);
+	if (catchElem->node) {
+		YO_ASSERT(catchElem->node->type == YO_NODE_CATCH_ELEM);
+		YoParserNode * node = catchElem->node; //  new YoParserNode(YO_NODE_STMT_CATCH, parser);
+		node->type = YO_NODE_STMT_CATCH;
+		node->data.stmtCatch.stmt = stmt->node;
+		node->token = stmt->node->token;
+		r->node = node;
+	}
+	else{
+		r->node = stmt->node;
+	}
+}
+
 void yoParserStmtReturn(YYSTYPE * r, YYSTYPE * expr, void * parm)
 {
 	YoParserParams * parser = dynamic_cast<YoParserParams*>((YoParserParams*)parm);
@@ -1162,25 +1240,49 @@ void yoParserStmtReturn(YYSTYPE * r, YYSTYPE * expr, void * parm)
 	r->node = node;
 }
 
-void yoParserStmtIf(YYSTYPE * r, YYSTYPE * ifExpr, YYSTYPE * thenStmt, YYSTYPE * elseIfList, YYSTYPE * elseStmt, void * parm)
+/*
+void yoParserIf(YYSTYPE * r, YYSTYPE * ifExpr, YYSTYPE * thenStmt, YYSTYPE * elseStmt, void * parm)
 {
 	YoParserParams * parser = dynamic_cast<YoParserParams*>((YoParserParams*)parm);
 	YoParserNode * node = new YoParserNode(YO_NODE_STMT_IF, parser);
 	node->data.stmtIf.ifExpr = ifExpr->node;
 	node->data.stmtIf.thenStmt = thenStmt->node;
-	node->data.stmtIf.elseIfList = elseIfList->node;
 	node->data.stmtIf.elseStmt = elseStmt->node;
 	node->token = ifExpr->node->token;
 	r->node = node;
 }
+*/
 
-void yoParserElseIfList(YYSTYPE * r, YYSTYPE * a, YYSTYPE * b, void * parm)
+void yoParserStmtIf(YYSTYPE * r, YYSTYPE * ifExpr, YYSTYPE * thenStmt, YYSTYPE * elseIfList, YYSTYPE * elseStmt, void * parm)
 {
 	YoParserParams * parser = dynamic_cast<YoParserParams*>((YoParserParams*)parm);
-	YoParserNode * node = new YoParserNode(YO_NODE_ELSEIF_LIST, parser);
-	node->data.elseIfList.nodes[0] = a->node;
-	node->data.elseIfList.nodes[1] = b->node;
-	node->token = a->node->token;
+	if (elseIfList) {
+		while (elseIfList->node) {
+			YO_ASSERT(elseIfList->node->type == YO_NODE_ELSEIF);
+			YoParserNode * node = elseIfList->node;
+			YoParserNode * _ifExpr = node->data.elseIfElem.expr;
+			YoParserNode * _thenStmt = node->data.elseIfElem.node;
+			node->type = YO_NODE_STMT_IF;
+			node->data.stmtIf.ifExpr = _ifExpr;
+			node->data.stmtIf.thenStmt = _thenStmt;
+			if (elseStmt->node->type == YO_NODE_ELSE) {
+				node->data.stmtIf.elseStmt = elseStmt->node->data.elseElem.node;
+			}
+			else{
+				YO_ASSERT(elseStmt->node->type == YO_NODE_STMT_IF);
+				node->data.stmtIf.elseStmt = elseStmt->node;
+			}
+			elseStmt->node = node;
+			elseIfList->node = node->prev;
+			node->prev = NULL;
+		}
+	}
+	// yoParserIf(r, ifExpr, thenStmt, elseStmt, parm);
+	YoParserNode * node = new YoParserNode(YO_NODE_STMT_IF, parser);
+	node->data.stmtIf.ifExpr = ifExpr->node;
+	node->data.stmtIf.thenStmt = thenStmt->node;
+	node->data.stmtIf.elseStmt = elseStmt->node;
+	node->token = ifExpr->node->token;
 	r->node = node;
 }
 

@@ -79,7 +79,9 @@ enum EYoParserNodeType {
 	YO_NODE_QUOTED_STRING,
 	YO_NODE_TYPE_STD_NAME,
 	YO_NODE_TYPE_NAME,
+	YO_NODE_TYPE_CONST,
 	YO_NODE_TYPE_PTR,
+	YO_NODE_TYPE_CHAN,
 	YO_NODE_TYPE_SLICE,
 	YO_NODE_TYPE_ARR,
 	YO_NODE_TYPE_FUNC,
@@ -94,10 +96,12 @@ enum EYoParserNodeType {
 	YO_NODE_INTERFACE,
 	YO_NODE_INTERFACE_FUNC,
 	YO_NODE_CLASS,
+	YO_NODE_CATCH_ELEM,
+	YO_NODE_STMT_CATCH,
 	YO_NODE_STMT_RETURN,
 	YO_NODE_STMT_IF,
 	YO_NODE_ELSEIF,
-	YO_NODE_ELSEIF_LIST,
+	// YO_NODE_ELSEIF_LIST,
 	YO_NODE_ELSE,
 	YO_NODE_CALL,
 
@@ -129,6 +133,14 @@ struct YoParserNode
 		struct {
 			YoParserNode * type;
 		} typeName;
+
+		struct {
+			YoParserNode * type;
+		} typeConst;
+
+		struct {
+			YoParserNode * type;
+		} typeChan;
 
 		struct {
 			YoParserNode * type;
@@ -208,9 +220,15 @@ struct YoParserNode
 		} stmtReturn;
 
 		struct {
+			YoParserNode * stmt;
+			YoParserNode * catchName;
+			YoParserNode * catchStmt;
+		} stmtCatch;
+
+		struct {
 			YoParserNode * ifExpr;
 			YoParserNode * thenStmt;
-			YoParserNode * elseIfList;
+			// YoParserNode * elseIfList;
 			YoParserNode * elseStmt;
 		} stmtIf;
 
