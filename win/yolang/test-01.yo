@@ -1,0 +1,4 @@
+func main() {
+	var i, j int = 10 * 8, 21
+	echo("test: ", j+j)
+}

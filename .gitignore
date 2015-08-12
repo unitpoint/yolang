@@ -2,7 +2,10 @@ win/yolang/Release/
 win/yolang/Debug/
 win/yolang/x64/Release/
 win/yolang/x64/Debug/
-win/yolang/ipch/
+win/yolang-llvm/Release/
+win/yolang-llvm/Debug/
+win/yolang-llvm/x64/Release/
+win/yolang-llvm/x64/Debug/
 *.opensdf
 *.sdf
 *.suo
