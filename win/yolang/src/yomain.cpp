@@ -11,10 +11,11 @@ extern int yodebug;
 void main()
 {
 #if YYDEBUG
-	yodebug = 1;
+	// yodebug = 1;
 #endif
 
-	const char * filename = "test.yo";
+	// const char * filename = "test.yo";
+	const char * filename = "test-01.yo";
 	FILE * f = fopen(filename, "rb");
 	if (!f) {
 		printf("file %s is not found\n", filename);
@@ -36,27 +37,7 @@ void main()
 
 	YoParserParams parser;
 	parser.init(buf, size);
-		/*
-		// "\n\n"
-		// "abc = 35.1 + 7 * 1.2 - null\n"
-		// "i = 3 * -abc + 5 * false\n"
-		"func fmt.Finder.main() {\n"
-		"var pb [5][9]***bool\n"
-		"var slist []string\n"
-		"var c * char\n"
-		"var i [10][]byte\n"
-		"var arr [3][]int32 = {{1, 2, 3}, {10, 20, 30}}\n"
-		// "MyStruct * pb; fmt.Parser slist; json.Object [100] str\n"
-		// "obj->method()\n"
-		"obj = A{}; obj = A{1, 2, 3*8}[0].Name; obj = A{X = *&B{Arr = {1, 25}}, B.Z = 1 - 8*2}\n"
-		"var x, y, z int32 = *&obj.prop[1], *&obj[1].prop + true * 1.2, 25 + abc\n"
-		"var x, y, z int32 = obj.prop[1], obj[1].a.b.c + true * 1.2, 25 + *@abc[23].a.b\n"
-		"}\n"
-		// "func Reader.get@Count(x int32){}\n"
-		// "float32 i = 3 * -abc + 5 * 1.3\n"
-		);
-		*/
-	int i = yoParse(&parser);
+	int i = parser.run();
 	parser.dump();
 	parser.shutdown();
 

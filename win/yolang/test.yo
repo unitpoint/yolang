@@ -4,9 +4,9 @@ func fmt.Finder.main(x, y int, z float, a, b, c [] char) {
 
 func (s *Test) test(a int32) int32 {}
 func (s Test) test2(a int32) ([]int32) {}
-func test3(a int32) ([]int32, *[][20]*[10]***interface{}) {}
+func test3(a int32) ([]int32, *[][20]*[10]***contract{}) {}
 
-type Finder interface { 
+type Finder contract { 
 	Find(x, y int32, a, b, c []string) float64
 	Split(a Array) (float32, float32, byte)		// line comment
 }
@@ -24,7 +24,8 @@ type Complex class {
 
 func (s * Complex) Abs() float64 {
 	var c chan chan Complex
-	var s * const char = "Hello World!" // .(*void).(*char)
+	var s * const char = "Hello World!".(*void).(*char)
+	var s * const char = "Hello World!" as *void as *char
 	if a + 1 {
 		return 10
 	} else if a + 2 {
@@ -53,6 +54,10 @@ func (s * Complex) Abs() float64 {
 	
 	return math.Hypot(s.Real, s.Imag)
 }
+
+// extern func cdecl min(a, b double) double
+
+
 
 func test3(a int32) {
 	var x, y, z int32 = *&obj.a.b[1], *&obj[1][b].a.b + true * 1.2, 25 + "size: ${2+3}, count: ${count+1 .. "test: ${1}"}, dt: ${dt}"

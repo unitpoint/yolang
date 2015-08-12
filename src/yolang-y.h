@@ -77,7 +77,7 @@ extern int yodebug;
      T_CONST = 286,
      T_STRUCT = 287,
      T_CLASS = 288,
-     T_INTERFACE = 289,
+     T_CONTRACT = 289,
      T_BRACE = 290,
      T_IF = 291,
      T_ELSE = 292,

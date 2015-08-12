@@ -180,7 +180,8 @@ CLOSE_BRACKET	= (")"|"}");
 <ST_YOLANG,ST_INJECT>"const" { return T_CONST; }
 <ST_YOLANG,ST_INJECT>"struct" { return T_STRUCT; }
 <ST_YOLANG,ST_INJECT>"class" { return T_CLASS; }
-<ST_YOLANG,ST_INJECT>"interface" { return T_INTERFACE; }
+/* <ST_YOLANG,ST_INJECT>"interface" { return T_INTERFACE; } */
+<ST_YOLANG,ST_INJECT>"contract" { return T_CONTRACT; }
 <ST_YOLANG,ST_INJECT>"if" { return T_IF; }
 <ST_YOLANG,ST_INJECT>"else" { return T_ELSE; }
 <ST_YOLANG,ST_INJECT>"elseif" { return T_ELSEIF; }

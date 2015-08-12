@@ -56,6 +56,7 @@ struct YoParserParams {
 
 	void init(const char * input);
 	void init(const char * input, int len);
+	int run();
 	void shutdown();
 	void dump();
 
@@ -70,8 +71,8 @@ enum EYoParserNodeType {
 	YO_NODE_EMPTY,
 	YO_NODE_NAME,
 	YO_NODE_DOTNAME,
-	YO_NODE_INT,
-	YO_NODE_DOUBLE,
+	YO_NODE_CONST_INT,
+	YO_NODE_CONST_DOUBLE,
 	YO_NODE_BIN_OP,
 	YO_NODE_UNARY_OP,
 	YO_NODE_CONST,
@@ -89,12 +90,13 @@ enum EYoParserNodeType {
 	YO_NODE_NEW_OBJ_EXPS,
 	YO_NODE_NEW_OBJ_PROPS,
 	// YO_NODE_STD_TYPE_PTR,
+	YO_NODE_CAST,
 	YO_NODE_DECL_VAR,
 	YO_NODE_DECL_ARG,
 	YO_NODE_DECL_FUNC,
 	YO_NODE_DECL_TYPE,
-	YO_NODE_INTERFACE,
-	YO_NODE_INTERFACE_FUNC,
+	YO_NODE_CONTRACT,
+	YO_NODE_CONTRACT_FUNC,
 	YO_NODE_CLASS,
 	YO_NODE_CATCH_ELEM,
 	YO_NODE_STMT_CATCH,
@@ -156,6 +158,14 @@ struct YoParserNode
 		} typeArr;
 
 		struct {
+			YoParserNode * node;
+		} typeContract;
+
+		struct {
+			YoParserNode * node;
+		} typeClass;
+
+		struct {
 			YoParserNode * name;
 			YoParserNode * type;
 		} declType;
@@ -169,6 +179,11 @@ struct YoParserNode
 			YoParserNode * name;
 			YoParserNode * type;
 		} declArg;
+
+		struct {
+			YoParserNode * expr;
+			YoParserNode * type;
+		} cast;
 
 		struct {
 			int op;
@@ -206,14 +221,6 @@ struct YoParserNode
 			YoParserNode * name;
 			YoParserNode * args;
 		} call;
-
-		struct {
-			YoParserNode * node;
-		} interface;
-
-		struct {
-			YoParserNode * node;
-		} typeClass;
 
 		struct {
 			YoParserNode * node;

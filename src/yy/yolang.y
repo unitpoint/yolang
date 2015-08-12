@@ -27,8 +27,8 @@ void yoParserNewObjExps(YYSTYPE * r, YYSTYPE * name, YYSTYPE * expr_list, void *
 void yoParserNewObjProps(YYSTYPE * r, YYSTYPE * name, YYSTYPE * prop_list, void * parm);
 void yoParserNewLine(void*);
 void yoParserDeclFunc(YYSTYPE * r, YYSTYPE * self, YYSTYPE * name, YYSTYPE * args, YYSTYPE * type, YYSTYPE * body, void*);
-void yoParserInterfaceFunc(YYSTYPE * r, YYSTYPE * name, YYSTYPE * args, YYSTYPE * type, void*);
-void yoParserInterface(YYSTYPE * r, YYSTYPE * a, void * parm);
+void yoParserContractFunc(YYSTYPE * r, YYSTYPE * name, YYSTYPE * args, YYSTYPE * type, void*);
+void yoParserContract(YYSTYPE * r, YYSTYPE * a, void * parm);
 void yoParserClass(YYSTYPE * r, YYSTYPE * a, void * parm);
 void yoParserDebug(YYSTYPE*, void*);
 void yoParserError(YYSTYPE*, const char*, void*);
@@ -42,6 +42,7 @@ void yoParserElseIf(YYSTYPE * r, YYSTYPE * expr, YYSTYPE * stmt, void * parm);
 void yoParserElse(YYSTYPE * r, YYSTYPE * stmt, void * parm);
 void yoParserCatchElem(YYSTYPE * r, YYSTYPE * name, YYSTYPE * stmt, void * parm);
 void yoParserStmtCatch(YYSTYPE * r, YYSTYPE * stmt, YYSTYPE * catchElem, void * parm);
+void yoParserCast(YYSTYPE * r, YYSTYPE * expr, YYSTYPE * type, void * parm);
 
 int yolex(YYSTYPE*, void * parser);
 void yyerror(const char* s);
@@ -51,7 +52,7 @@ void yyerror(const char* s);
 %verbose
 %pure_parser
 %error-verbose
-%expect 4
+%expect 5
 
 %token T_ELLIPSIS
 %token T_INT8 T_INT16 T_INT32 T_INT64
@@ -72,7 +73,7 @@ void yyerror(const char* s);
 %token T_CONST
 %token T_STRUCT
 %token T_CLASS
-%token T_INTERFACE
+%token T_CONTRACT
 %token T_BRACE
 %token T_IF
 %token T_ELSE
@@ -280,21 +281,21 @@ dotname:
 		T_NAME
 	|	dotname T_DOT T_NAME	{ yoParserDotName(&$$, &$1, &$3, parm); }
 	
-type_interface_empty:
-		T_INTERFACE '{' '}'	{ yoParseEmpty(&$1, parm); yoParserInterface(&$$, &$1, parm); }
+type_contract_empty:
+		T_CONTRACT '{' '}'	{ yoParseEmpty(&$1, parm); yoParserContract(&$$, &$1, parm); }
 		
-type_interface:
-		type_interface_empty
-	|	T_INTERFACE '{' interface_body '}'	{ yoParserInterface(&$$, &$3, parm); }
+type_contract:
+		type_contract_empty
+	|	T_CONTRACT '{' contract_body '}'	{ yoParserContract(&$$, &$3, parm); }
 
-interface_body:
-		interface_decl_func
-	|	interface_body interface_decl_func	{ yoParserList(&$$, &$1, &$2, parm); }
+contract_body:
+		contract_decl_func
+	|	contract_body contract_decl_func	{ yoParserList(&$$, &$1, &$2, parm); }
 
-interface_decl_func:
-		T_NAME '(' decl_arg_list_or_empty ')' end_stmt	{ yoParserInterfaceFunc(&$$, &$1, &$3, NULL, parm); }
-	|	T_NAME '(' decl_arg_list_or_empty ')' type end_stmt	{ yoParserInterfaceFunc(&$$, &$1, &$3, &$5, parm); }
-	|	T_NAME '(' decl_arg_list_or_empty ')' '(' type_list ')' end_stmt	{ yoParserInterfaceFunc(&$$, &$1, &$3, &$6, parm); }
+contract_decl_func:
+		T_NAME '(' decl_arg_list_or_empty ')' end_stmt	{ yoParserContractFunc(&$$, &$1, &$3, NULL, parm); }
+	|	T_NAME '(' decl_arg_list_or_empty ')' type end_stmt	{ yoParserContractFunc(&$$, &$1, &$3, &$5, parm); }
+	|	T_NAME '(' decl_arg_list_or_empty ')' '(' type_list ')' end_stmt	{ yoParserContractFunc(&$$, &$1, &$3, &$6, parm); }
 	|	newline
 
 type_class:
@@ -324,7 +325,7 @@ type_base:
 	
 type_ext:
 		type_base
-	|	type_interface
+	|	type_contract
 	|	type_class
 			
 top_decl_func:
@@ -369,7 +370,7 @@ type_func:
 
 type:
 		type_base
-	|	type_interface_empty
+	|	type_contract_empty
 
 type_const:
 		T_CONST type	{ yoParserTypeConst(&$$, &$2, parm); }
@@ -482,8 +483,8 @@ expr_base:
 	|	expr '[' expr ']'	{ yoParserBinOp(&$$, &$1, &$3, T_INDEX, parm); }
 	|	'(' expr ')'		{ $$ = $2; }
 	|	call
-/*	|	expr T_AS type		{ yoParserConvert(&$$, &$1, &$3, parm); } */
-/*	|	expr T_DOT '(' type ')'	{ yoParserConvert(&$$, &$1, &$4, parm); } */
+	|	expr T_AS type		{ yoParserCast(&$$, &$1, &$3, parm); }
+	|	expr T_DOT '(' type ')'	{ yoParserCast(&$$, &$1, &$4, parm); }
 
 uexpr:
 		T_PLUS	expr %prec T_UNARY	{ yoParserUnaryOp(&$$, &$2, T_PLUS, parm); }
@@ -492,6 +493,7 @@ uexpr:
 	|	T_TILDE expr %prec T_UNARY	{ yoParserUnaryOp(&$$, &$2, T_TILDE, parm); }
 	|	T_MUL 	expr %prec T_UNARY	{ yoParserUnaryOp(&$$, &$2, T_INDIRECT, parm); }
 	|	T_AND	expr %prec T_UNARY	{ yoParserUnaryOp(&$$, &$2, T_ADDR, parm); }
+/*	|	'(' type ')' expr %prec T_UNARY */
 /*	|	T_AT  T_NAME %prec T_UNARY	{ yoParserUnaryOp(&$$, &$2, T_AT, parm); } */
 
 call:
