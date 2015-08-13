@@ -1,0 +1,7 @@
+module HelloWorld
+
+func main() int {
+	let i mut int
+	i = 10 * 8
+	return i
+}

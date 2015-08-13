@@ -5,6 +5,7 @@
 #include <string.h>
 // #include <malloc.h>
 #include "../../../src/yolang.h"
+#include "../../../src/yoparser.h"
 
 extern int yodebug;
 
@@ -14,8 +15,8 @@ void main()
 	// yodebug = 1;
 #endif
 
-	// const char * filename = "test.yo";
-	const char * filename = "test-01.yo";
+	const char * filename = "test-llvm.yo";
+	// const char * filename = "test-01.yo";
 	FILE * f = fopen(filename, "rb");
 	if (!f) {
 		printf("file %s is not found\n", filename);
@@ -35,7 +36,7 @@ void main()
 	// buf[size] = '\0';
 	fclose(f);
 
-	YoParserParams parser;
+	YoParser parser;
 	parser.init(buf, size);
 	int i = parser.run();
 	parser.dump();

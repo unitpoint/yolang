@@ -6,16 +6,95 @@
 
 #define YYPARSE_PARAM parm
 #define YYLEX_PARAM parm
+
 #define YYSTYPE YoParserStackElement
+#define YYLTYPE YoParserLocation
 
 #define YO_LEX_MAXFILL 10
+
+#include "yolang.h"
 
 #include "yolang-l.h"
 #include "yolang-y.h"
 
+enum EYoParserNodeType {
+	YO_NODE_EMPTY,
+	YO_NODE_MODULE,
+	YO_NODE_IMPORT,
+	YO_NODE_NAME,
+	YO_NODE_DOTNAME,
+	YO_NODE_CONST_INT,
+	YO_NODE_CONST_FLOAT,
+	YO_NODE_CONST_DOUBLE,
+	YO_NODE_BIN_OP,
+	YO_NODE_CONCAT,
+	YO_NODE_UNARY_OP,
+	YO_NODE_CONST,
+	YO_NODE_SINGLE_QUOTED_STRING,
+	YO_NODE_QUOTED_STRING,
+	YO_NODE_TYPE_STD_NAME,
+	YO_NODE_TYPE_NAME,
+	YO_NODE_TYPE_CONST,
+	YO_NODE_TYPE_MUTABLE,
+	YO_NODE_TYPE_PTR,
+	YO_NODE_TYPE_REF,
+	YO_NODE_TYPE_CHAN,
+	YO_NODE_TYPE_SLICE,
+	YO_NODE_TYPE_ARR,
+	YO_NODE_TYPE_FUNC,
+	YO_NODE_NEW_ARR_EXPS,
+	YO_NODE_NEW_OBJ_EXPS,
+	YO_NODE_NEW_OBJ_PROPS,
+	// YO_NODE_STD_TYPE_PTR,
+	YO_NODE_CAST,
+	YO_NODE_DECL_VAR,
+	YO_NODE_DECL_ARG,
+	YO_NODE_DECL_FUNC,
+	YO_NODE_DECL_EXPR_FUNC,
+	YO_NODE_DECL_TYPE,
+	YO_NODE_CONTRACT,
+	YO_NODE_CONTRACT_FUNC,
+	YO_NODE_CLASS,
+	YO_NODE_CATCH_ELEM,
+	YO_NODE_STMT_CATCH,
+	YO_NODE_STMT_RETURN,
+	YO_NODE_STMT_IF,
+	YO_NODE_ELSEIF,
+	// YO_NODE_ELSEIF_LIST,
+	YO_NODE_ELSE,
+	YO_NODE_CALL,
+
+	// =========================
+	__YO_NODE_DUMMY__
+};
+
 struct YoParserNode;
 
-struct YoParserParams {
+struct YoParserToken
+{
+	const char * str;
+	int len;
+	int line;
+};
+
+struct YoParserLocation
+{
+	int first_line;
+	int first_column;
+	int last_line;
+	int last_column;
+
+	YoParserToken token;
+};
+
+struct YoParserStackElement
+{
+	YoParserLocation loc;
+	YoParserNode * node;
+	YoParserStackElement();
+};
+
+struct YoParser {
 
 	struct LexState {
 		int state;
@@ -52,7 +131,7 @@ struct YoParserParams {
 
 	int listSize;
 	YoParserNode * list;
-	YoParserNode * root;
+	YoParserNode * module;
 
 	void init(const char * input);
 	void init(const char * input, int len);
@@ -65,50 +144,8 @@ struct YoParserParams {
 
 	void pushBrace();
 	void popBrace();
-};
 
-enum EYoParserNodeType {
-	YO_NODE_EMPTY,
-	YO_NODE_NAME,
-	YO_NODE_DOTNAME,
-	YO_NODE_CONST_INT,
-	YO_NODE_CONST_DOUBLE,
-	YO_NODE_BIN_OP,
-	YO_NODE_UNARY_OP,
-	YO_NODE_CONST,
-	YO_NODE_SINGLE_QUOTED_STRING,
-	YO_NODE_QUOTED_STRING,
-	YO_NODE_TYPE_STD_NAME,
-	YO_NODE_TYPE_NAME,
-	YO_NODE_TYPE_CONST,
-	YO_NODE_TYPE_PTR,
-	YO_NODE_TYPE_CHAN,
-	YO_NODE_TYPE_SLICE,
-	YO_NODE_TYPE_ARR,
-	YO_NODE_TYPE_FUNC,
-	YO_NODE_NEW_ARR_EXPS,
-	YO_NODE_NEW_OBJ_EXPS,
-	YO_NODE_NEW_OBJ_PROPS,
-	// YO_NODE_STD_TYPE_PTR,
-	YO_NODE_CAST,
-	YO_NODE_DECL_VAR,
-	YO_NODE_DECL_ARG,
-	YO_NODE_DECL_FUNC,
-	YO_NODE_DECL_TYPE,
-	YO_NODE_CONTRACT,
-	YO_NODE_CONTRACT_FUNC,
-	YO_NODE_CLASS,
-	YO_NODE_CATCH_ELEM,
-	YO_NODE_STMT_CATCH,
-	YO_NODE_STMT_RETURN,
-	YO_NODE_STMT_IF,
-	YO_NODE_ELSEIF,
-	// YO_NODE_ELSEIF_LIST,
-	YO_NODE_ELSE,
-	YO_NODE_CALL,
-
-	// =========================
-	__YO_NODE_DUMMY__
+	YoParserNode * newNode(EYoParserNodeType type, YYLTYPE * loc);
 };
 
 struct YoParserNode
@@ -116,29 +153,51 @@ struct YoParserNode
 	YoParserNode * parserNext;
 
 	EYoParserNodeType type;
-
-	struct {
-		const char * str;
-		int len;
-		int line;
-	} token;
+	YoParserToken token;
 
 	YoParserNode * prev;
 
 	union {
-		int ival;
-		double dval;
+		struct {
+			YoParserNode * name;
+			YoParserNode * body;
+		} module;
 
-		int constOp;
+		struct {
+			YoParserNode * name;
+			YoParserNode * path;
+		} import;
+
+		struct {
+			YO_U64 ival64;
+			YO_BYTE bits;
+			bool isSigned;
+		} constInt;
+
+		struct {
+			float fval32;
+		} constFloat;
+
+		struct {
+			double fval64;
+		} constDouble;
+
+		int constOp; // null, true, false
 		int typeStdName;
 
 		struct {
-			YoParserNode * type;
+			YoParserNode * name;
+			YoParserNode * gen;
+			YoParserNode * def;
 		} typeName;
 
 		struct {
 			YoParserNode * type;
 		} typeConst;
+
+		struct {
+			YoParserNode * type;
+		} typeMutable;
 
 		struct {
 			YoParserNode * type;
@@ -150,6 +209,10 @@ struct YoParserNode
 
 		struct {
 			YoParserNode * type;
+		} typeRef;
+
+		struct {
+			YoParserNode * type;
 		} typeSlice;
 
 		struct {
@@ -157,12 +220,14 @@ struct YoParserNode
 			YoParserNode * type;
 		} typeArr;
 
-		struct {
+		/* struct {
 			YoParserNode * node;
-		} typeContract;
+		} typeContract; */
 
 		struct {
-			YoParserNode * node;
+			YoParserNode * gen;
+			YoParserNode * extends;
+			YoParserNode * body;
 		} typeClass;
 
 		struct {
@@ -202,6 +267,10 @@ struct YoParserNode
 
 		struct {
 			YoParserNode * values;
+		} concat;
+
+		struct {
+			YoParserNode * values;
 		} arr;
 
 		struct {
@@ -210,6 +279,7 @@ struct YoParserNode
 		} obj;
 
 		struct {
+			int op; // func, get, set
 			YoParserNode * self;
 			YoParserNode * name;
 			YoParserNode * args;
@@ -253,20 +323,14 @@ struct YoParserNode
 		} elseIfList;
 	} data;
 
-	YoParserNode(EYoParserNodeType _type, YoParserParams * parser);
+	// YoParserNode(EYoParserNodeType _type, YoParser * parser);
 	// ~YoParserNode();
 	// void reset();
 
 	bool isType() const;
 };
 
-struct YoParserStackElement
-{
-	YoParserNode * node;
-	YoParserStackElement();
-};
-
 const char * yoTokenName(int token);
-int yoParse(YoParserParams*);
+int yoParse(YoParser*);
 
 #endif // __YOPARSER_H__

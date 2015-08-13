@@ -8,7 +8,7 @@
 #endif
 
 #include <assert.h>
-#include "yoparser.h"
+// #include "yoparser.h"
 
 #if defined _DEBUG && !defined YO_RELEASE && !defined YO_DEBUG
 #define YO_DEBUG
@@ -39,5 +39,34 @@
 #define YO_DBG_FILEPOS_START
 
 #endif // YO_DEBUG
+
+#define YO_INT8 signed char
+#define YO_BYTE unsigned char
+#define YO_INT16 short
+#define YO_U16 unsigned short
+
+#if defined __GNUC__ 
+#include <inttypes.h>
+
+#define YO_INT32 int32_t
+#define YO_INT64 int64_t
+#define YO_U32 uint32_t
+#define YO_U64 uint64_t
+
+#elif defined IW_SDK
+
+#define YO_INT32 int32
+#define YO_INT64 int64
+#define YO_U32 uint32
+#define YO_U64 uint64
+
+#else
+
+#define YO_INT32 __int32
+#define YO_INT64 __int64
+#define YO_U32 unsigned __int32
+#define YO_U64 unsigned __int64
+
+#endif
 
 #endif // __YOLANG_H__
