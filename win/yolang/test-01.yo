@@ -1,4 +1,93 @@
 func main() {
-	var i, j int = 10 * 8, 21
+	var i, j: int = 10 * 0x7fff_ffff_ffff, 21.123_456_f32
 	echo("test: ", j+j)
+	var c: int = 3 * *exp * 4
+}
+
+/*
+int i = 0;
+int * mut i = 0;
+mut int i = 0;
+mut int& i = 0;
+int& mut i = 0;
+var i: mut int
+
+mut i = 0
+
+let i: &mut int = 0
+
+mut Option<int> i = None;
+let Option<int> mut & i
+*/
+
+type CmpEq class<T> {}
+impl CmpEq {
+	func Eq(@*mut, other * CmpEq) bool { return !@Ne(other) }
+	func Ne(@&mut, other * CmpEq) bool { return !@Eq(other) }
+}
+// func (s * CmpEq) Eq(*s, other * CmpEq) bool { return !s.Ne(other) }
+// func (s * CmpEq) Ne(&s, other * CmpEq) bool { return !s.Eq(other) }
+
+type S1 class: CmpEq<T=int32> { n T }
+func Ne(@*, other * S1) bool { return @n != other.n }
+
+type S2 class: CmpEq<T=int32> { n T }
+func (s * S2) Eq(other * S2) bool { return s.n == other.n }
+
+func main() {
+	var s1_1 = S1{n: 0}
+	var s1_2 = S1{n: 0}
+	fmt.printf("%v", s1_1.Eq(s1_2))
+}
+
+// ==========================
+
+type Copy contract<T:@> {
+	func Copy() T
+}
+
+func Philosopher.Copy() Philosopher {
+	return Philosopher(@bane, @left, @right)
+}
+
+func Philosopher.Init(name string, left, right int) {
+	@name = name
+	@left = left
+	@right = right
+}
+
+// ==========================
+
+type Option enum<T> {
+	Some(T),
+	None,
+}
+
+type Iterator contract<T> {
+	func Next() Option<T>
+}
+
+type Philosopher class {
+	name string
+	left, right int
+}
+
+func (p &Philosopher) Eat(forks * mut Mutex) {
+	let _lock = {forks[p.left].lock(), forks[p.right].lock()}
+	fmt.printf("%s is eating\n", p.name)
+	thread.SleepMs(1000)
+	fmt.printf("%s is done eating\n", p.name)
+}
+
+func main() {
+	let philosophers = {
+        Philosopher{"Judith Butler", 0, 1},
+        Philosopher{"Gilles Deleuze", 1, 2},
+        Philosopher{"Karl Marx", 2, 3},
+        Philosopher{"Emma Goldman", 3, 4},
+        Philosopher{"Michel Foucault", 0, 4},
+    }
+	let forks [6] mut Mutex
+	// philosophers.collect({|p| systhread p.Eat(forks)}).each({|t| t.Wait()})
+	philosophers.collect(func (p &Philosopher) systhread { return systhread p.Eat(forks)}).each(|t| t.Wait())
 }

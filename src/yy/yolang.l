@@ -50,26 +50,25 @@
 # error YO_LEX_MAXFILL should be greater than or equal to YYMAXFILL
 #endif 
 
-int yoLexDec(void*, YYSTYPE*);
-int yoLexBin(void*, YYSTYPE*);
-int yoLexHex(void*, YYSTYPE*);
-int yoLexFloat(void*, YYSTYPE*);
-int yoLexName(void*, YYSTYPE*);
-int yoLexChar(void*, YYSTYPE*);
-void yoLexLineComment(void*);
-void yoLexMultiLineComment(void*);
-void yoLexNewLine(void*);
-int yoLexSingleQuotedString(void * parm, YYSTYPE * elem);
-int yoLexQuotedString(void * parm, YYSTYPE * elem);
-int yoLexInjectOpenBrace(void * parm, YYSTYPE*);
-int yoLexInjectCloseBrace(void * parm, YYSTYPE*);
-int yoLexOpenBrace(void * parm);
-int yoLexOpenBracket(void * parm);
-int yoLexCloseBracket(void * parm);
+int yoLexIntRadix(YYSTYPE*, int radix, int skipEnd, void * parm, YYLTYPE*);
+int yoLexFloat(YYSTYPE*, int skipEnd, void * parm, YYLTYPE*);
+int yoLexName(YYSTYPE*, void * parm, YYLTYPE*);
+int yoLexChar(YYSTYPE*, void * parm, YYLTYPE*);
+void yoLexLineComment(void * parm, YYLTYPE*);
+void yoLexMultiLineComment(void * parm, YYLTYPE*);
+void yoLexNewLine(void * parm, YYLTYPE*);
+int yoLexSingleQuotedString(YYSTYPE * elem, void * parm, YYLTYPE*);
+int yoLexQuotedString(YYSTYPE * elem, void * parm, YYLTYPE*);
+int yoLexInjectOpenBrace(YYSTYPE*, void * parm, YYLTYPE*);
+int yoLexInjectCloseBrace(YYSTYPE*, void * parm, YYLTYPE*);
+int yoLexOpenBrace(void * parm, YYLTYPE*);
+int yoLexOpenBracket(void * parm, YYLTYPE*);
+int yoLexCloseBracket(void * parm, YYLTYPE*);
+void yoLexTrackRule(YYSTYPE*, void * parm, YYLTYPE*);
 
-int yolex(YYSTYPE * parserNode, void * parm)
+int yolex(YYSTYPE * parserElem, YYLTYPE * parserLoc, void * parm)
 {
-	YoParserParams * parser = (YoParserParams*)parm;
+	YoParser * parser = (YoParser*)parm;
 	// YYMARKER = YYCURSOR;
 	
 restart:
@@ -83,11 +82,12 @@ restart:
 	
 /*!re2c
 re2c:yyfill:check = 0;
-LNUM		= [0-9]+;
-DNUM		= ([0-9]*"."[0-9]+)|([0-9]+"."[0-9]*);
+LNUM		= [0-9][0-9_]*;
+DNUM		= {LNUM}"."{LNUM};
 EXPONENT_DNUM = (({LNUM}|{DNUM})[eE][+-]?{LNUM});
-HNUM		= "0x"[0-9a-fA-F]+;
-BNUM		= "0b"[01]+;
+HNUM		= "0x"[0-9a-fA-F][0-9a-fA-F_]*;
+BNUM		= "0b"[01][01_]*;
+/* ONUM		= "0"[0-7][0-7_]*; */
 NAME		= [a-zA-Z_\x7f-\xff][a-zA-Z0-9_\@\x7f-\xff]*;
 WHITESPACES = [ \n\r\t]+;
 TABS_AND_SPACES = [ \t]+;
@@ -100,7 +100,7 @@ OPEN_BRACKET	= ("("|"{");
 CLOSE_BRACKET	= (")"|"}");
 
 /* compute yyleng before each rule */
-<!*> := yyleng = YYCURSOR - yytext;
+<!*> := yoLexTrackRule(parserElem, parm, parserLoc); // yyleng = YYCURSOR - yytext;
 
 <ST_YOLANG,ST_INJECT>"@" { return T_AT; }
 <ST_YOLANG,ST_INJECT>"." { return T_DOT; }
@@ -111,6 +111,7 @@ CLOSE_BRACKET	= (")"|"}");
 <ST_YOLANG,ST_INJECT>"%" { return T_MOD; }
 <ST_YOLANG,ST_INJECT>"**" { return T_POW; }
 <ST_YOLANG,ST_INJECT>".." { return T_CONCAT; }
+<ST_YOLANG,ST_INJECT>"<-" { return T_CHAN_ACCESS; }
 
 <ST_YOLANG,ST_INJECT>"=" { return T_ASSIGN; }
 <ST_YOLANG,ST_INJECT>":=" { return T_DECL_ASSIGN; }
@@ -139,7 +140,7 @@ CLOSE_BRACKET	= (")"|"}");
 
 <ST_YOLANG,ST_INJECT>{TABS_AND_SPACES} { goto restart; }
 <ST_YOLANG,ST_INJECT>{NEWLINE} { return T_NEWLINE; }
-<ST_YOLANG,ST_INJECT>"..." { return T_ELLIPSIS; }
+<ST_YOLANG,ST_INJECT>"..." { return T_DOTDOTDOT; }
 /* <ST_YOLANG,ST_INJECT>"[]" { return T_SLICE; } */
 
 <ST_YOLANG,ST_INJECT>"char" { return T_INT8; }
@@ -159,11 +160,8 @@ CLOSE_BRACKET	= (")"|"}");
 
 <ST_YOLANG,ST_INJECT>"uintptr" { return T_UINTPTR; }
 
-<ST_YOLANG,ST_INJECT>"float32" { return T_FLOAT32; }
-<ST_YOLANG,ST_INJECT>"float64" { return T_FLOAT64; }
-
-<ST_YOLANG,ST_INJECT>"float" 	{ return T_FLOAT32; }
-<ST_YOLANG,ST_INJECT>"double" 	{ return T_FLOAT64; }
+<ST_YOLANG,ST_INJECT>"float32"|"float" { return T_FLOAT32; }
+<ST_YOLANG,ST_INJECT>"float64"|"double" { return T_FLOAT64; }
 
 <ST_YOLANG,ST_INJECT>"string" { return T_STRING; }
 <ST_YOLANG,ST_INJECT>"bool" { return T_BOOL; }
@@ -171,16 +169,20 @@ CLOSE_BRACKET	= (")"|"}");
 <ST_YOLANG,ST_INJECT>"false" { return T_FALSE; }
 <ST_YOLANG,ST_INJECT>"null" { return T_NULL; }
 
+<ST_YOLANG,ST_INJECT>"module" { return T_MODULE; }
+<ST_YOLANG,ST_INJECT>"import" { return T_IMPORT; }
 <ST_YOLANG,ST_INJECT>"void" { return T_VOID; }
 <ST_YOLANG,ST_INJECT>"return" { return T_RETURN; }
-<ST_YOLANG,ST_INJECT>"var" { return T_VAR; }
+<ST_YOLANG,ST_INJECT>"let" { return T_LET; }
 <ST_YOLANG,ST_INJECT>"type" { return T_TYPE; }
 <ST_YOLANG,ST_INJECT>"chan" { return T_CHAN; }
 <ST_YOLANG,ST_INJECT>"func" { return T_FUNC; }
+<ST_YOLANG,ST_INJECT>"get" { return T_GET; }
+<ST_YOLANG,ST_INJECT>"set" { return T_SET; }
 <ST_YOLANG,ST_INJECT>"const" { return T_CONST; }
+<ST_YOLANG,ST_INJECT>"mut" { return T_MUTABLE; }
 <ST_YOLANG,ST_INJECT>"struct" { return T_STRUCT; }
 <ST_YOLANG,ST_INJECT>"class" { return T_CLASS; }
-/* <ST_YOLANG,ST_INJECT>"interface" { return T_INTERFACE; } */
 <ST_YOLANG,ST_INJECT>"contract" { return T_CONTRACT; }
 <ST_YOLANG,ST_INJECT>"if" { return T_IF; }
 <ST_YOLANG,ST_INJECT>"else" { return T_ELSE; }
@@ -188,26 +190,38 @@ CLOSE_BRACKET	= (")"|"}");
 <ST_YOLANG,ST_INJECT>"catch" { return T_CATCH; }
 <ST_YOLANG,ST_INJECT>"as" { return T_AS; }
 
-<ST_YOLANG>"{"	{ return yoLexOpenBrace(parser); }
-<ST_INJECT>"{"	{ return yoLexInjectOpenBrace(parser, parserNode); }
-<ST_INJECT>"}"	{ return yoLexInjectCloseBrace(parser, parserNode); }
+<ST_YOLANG>"{"	{ return yoLexOpenBrace(parm, parserLoc); }
+<ST_INJECT>"{"	{ return yoLexInjectOpenBrace(parserElem, parm, parserLoc); }
+<ST_INJECT>"}"	{ return yoLexInjectCloseBrace(parserElem, parm, parserLoc); }
 
-<ST_YOLANG,ST_INJECT>{OPEN_BRACKET}	{ return yoLexOpenBracket(parser); }
-<ST_YOLANG,ST_INJECT>{CLOSE_BRACKET} { return yoLexCloseBracket(parser); }
+<ST_YOLANG,ST_INJECT>{OPEN_BRACKET}	{ return yoLexOpenBracket(parm, parserLoc); }
+<ST_YOLANG,ST_INJECT>{CLOSE_BRACKET} { return yoLexCloseBracket(parm, parserLoc); }
 
-<ST_YOLANG,ST_INJECT>{NAME} { return yoLexName(parser, parserNode); }
-<ST_YOLANG,ST_INJECT>{LNUM} { return yoLexDec(parser, parserNode); }
-<ST_YOLANG,ST_INJECT>{BNUM} { return yoLexBin(parser, parserNode); }
-<ST_YOLANG,ST_INJECT>{HNUM} { return yoLexHex(parser, parserNode); }
-<ST_YOLANG,ST_INJECT>{DNUM}|{EXPONENT_DNUM} { return yoLexFloat(parser, parserNode); }
+<ST_YOLANG,ST_INJECT>{NAME} { return yoLexName(parserElem, parm, parserLoc); }
 
-<ST_YOLANG,ST_INJECT>"//" { yoLexLineComment(parser); goto restart; }
-<ST_YOLANG,ST_INJECT>"/*" { yoLexMultiLineComment(parser); goto restart; }
+<ST_YOLANG,ST_INJECT>{HNUM} { return yoLexIntRadix(parserElem, 16, 0, parm, parserLoc); }
+<ST_YOLANG,ST_INJECT>{LNUM} { return yoLexIntRadix(parserElem, 10, 0, parm, parserLoc); }
+<ST_YOLANG,ST_INJECT>{BNUM} { return yoLexIntRadix(parserElem, 2, 0, parm, parserLoc); }
 
-<ST_YOLANG,ST_INJECT>{SINGLE_QUOTE} { return yoLexSingleQuotedString(parser, parserNode); }
-<ST_YOLANG,ST_INJECT>{QUOTE}	{ return yoLexQuotedString(parser, parserNode); }
+<ST_YOLANG,ST_INJECT>{HNUM}("i8"|"u8") { return yoLexIntRadix(parserElem, 16, 2, parm, parserLoc); }
+<ST_YOLANG,ST_INJECT>{LNUM}("i8"|"u8") { return yoLexIntRadix(parserElem, 10, 2, parm, parserLoc); }
+<ST_YOLANG,ST_INJECT>{BNUM}("i8"|"u8") { return yoLexIntRadix(parserElem, 2, 2, parm, parserLoc); }
 
-<ST_YOLANG,ST_INJECT>{ANY_CHAR} { return yoLexChar(parser, parserNode); }
+<ST_YOLANG,ST_INJECT>{HNUM}("i16"|"i32"|"i64"|"u16"|"u32"|"u64") { return yoLexIntRadix(parserElem, 16, 3, parm, parserLoc); }
+<ST_YOLANG,ST_INJECT>{LNUM}("i16"|"i32"|"i64"|"u16"|"u32"|"u64") { return yoLexIntRadix(parserElem, 10, 3, parm, parserLoc); }
+<ST_YOLANG,ST_INJECT>{BNUM}("i16"|"i32"|"i64"|"u16"|"u32"|"u64") { return yoLexIntRadix(parserElem, 2, 3, parm, parserLoc); }
+
+<ST_YOLANG,ST_INJECT>{DNUM}|{EXPONENT_DNUM} { return yoLexFloat(parserElem, 0, parm, parserLoc); }
+<ST_YOLANG,ST_INJECT>({DNUM}|{EXPONENT_DNUM})"f32" { return yoLexFloat(parserElem, 3, parm, parserLoc); }
+<ST_YOLANG,ST_INJECT>({DNUM}|{EXPONENT_DNUM})"f64" { return yoLexFloat(parserElem, 3, parm, parserLoc); }
+
+<ST_YOLANG,ST_INJECT>"//" { yoLexLineComment(parm, parserLoc); goto restart; }
+<ST_YOLANG,ST_INJECT>"/*" { yoLexMultiLineComment(parm, parserLoc); goto restart; }
+
+<ST_YOLANG,ST_INJECT>{SINGLE_QUOTE} { return yoLexSingleQuotedString(parserElem, parm, parserLoc); }
+<ST_YOLANG,ST_INJECT>{QUOTE}	{ return yoLexQuotedString(parserElem, parm, parserLoc); }
+
+<ST_YOLANG,ST_INJECT>{ANY_CHAR} { return yoLexChar(parserElem, parm, parserLoc); }
 
 */
 

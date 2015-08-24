@@ -1,14 +1,38 @@
-func fmt.Finder.main(x, y int, z float, a, b, c [] char) {
-	var arr [3][]int32 = {{1, 2, 3}, {10, 20, 30}}
+module test
+
+// import fmt "src/fmt2"
+// import "src/math"
+
+import {
+	"src/math"
+	fmt "src/fmt2"
 }
 
-func (s *Test) test(a int32) int32 {}
-func (s Test) test2(a int32) ([]int32) {}
-func test3(a int32) ([]int32, *[][20]*[10]***contract{}) {}
+func fmt.Finder.main(x, y int, z float, a, b, c [] char) {
+	var arr [3][]int32 = {{1, y, 3}, {10, 20, 30}}
+}
 
-type Finder contract { 
-	Find(x, y int32, a, b, c []string) float64
-	Split(a Array) (float32, float32, byte)		// line comment
+type CmpEq class<T>: A, B<T, float32> {}
+type S1 class: CmpEq<T=int32> { n T; }
+
+/*
+func<T> zero() T { return T(0); }
+func<T: Number, T2: Number> T(a T2) T { return a; }
+*/
+
+func (s *Test) test(a int32) int32 {}
+func (s Test) test2(a int32) []int32 {}
+func test3(a int32) *[][20]*[10]***contract{} {}
+
+type Finder contract<T> { 
+	func Find(x, y T, a, b, c []string) float64
+	func Split(a Array)		// line comment
+	
+	get Size() int
+	set Size(v int)
+	
+	get Pos(x, y int) int
+	set Pos(x, y, v int)
 }
 
 type Callback func (x, y, z float32) float32
@@ -20,10 +44,53 @@ type Complex class {
 		test multiline comment
 		type ... Callback func (x, y, z float32) float32
 	*/
+	
+	/*
+	type Consts class {
+		const {
+			PI = 3.14
+			
+		}
+	}
+	*/	
+}
+
+func (s &mut Complex) Init() {
+
+}
+
+func Complex(r, i float64) Complex {
+	return Complex{r, i}
+}
+
+func Complex(r float64) Complex {
+	return Complex{r, 0}
+}
+
+func Complex() Complex {
+	return Complex{0, 0}
+}
+
+/*
+op + (a, b &Complex) Complex {
+	return Complex(a.Real + b.Real, a.Imag + b.Imag)
+}
+
+op<T: Number> + (a T, b &Complex) Complex {
+	return Complex(float64(a) + b.Real, b.Imag)
+}
+*/
+
+get (s &Complex) Finder.Pos(x, y int) int {
+	return s
+}
+
+set (s * Complex) Finder.Pos(x,y, v int) {
+	return s
 }
 
 func (s * Complex) Abs() float64 {
-	var c chan chan Complex
+	var c chan chan Complex;
 	var s * const char = "Hello World!".(*void).(*char)
 	var s * const char = "Hello World!" as *void as *char
 	if a + 1 {
@@ -60,6 +127,11 @@ func (s * Complex) Abs() float64 {
 
 
 func test3(a int32) {
-	var x, y, z int32 = *&obj.a.b[1], *&obj[1][b].a.b + true * 1.2, 25 + "size: ${2+3}, count: ${count+1 .. "test: ${1}"}, dt: ${dt}"
-	var x data = *&obj.a.b[1], *&obj[1].a.b(1, 2) + true * 1.2, 25 + 'abc'
+	var x, y, z int32 = *&obj.a.b[1], *&obj[1u8][b].a.b + true * 1.2, 25 + "size: ${2+3}, count: ${count+1 .. "test: ${1}"}, dt: ${dt}"
+	var x mut & mut data = *&obj.a.b[1], *&obj[1].a.b(1, 2) + true * 1.2, 25 + 'abc'
+}
+
+func main() {
+	collect(func(i int)int{ return 7 * i; })
+	collect({|i| 7 * i})
 }
