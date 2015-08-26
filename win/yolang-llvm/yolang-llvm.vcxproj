@@ -41,9 +41,11 @@
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <LinkIncremental>true</LinkIncremental>
+    <IncludePath>$(IncludePath)</IncludePath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <LinkIncremental>false</LinkIncremental>
+    <IncludePath>$(IncludePath)</IncludePath>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
@@ -51,7 +53,13 @@
       </PrecompiledHeader>
       <WarningLevel>Level3</WarningLevel>
       <Optimization>Disabled</Optimization>
-      <PreprocessorDefinitions>WIN32;_DEBUG;_CONSOLE;_LIB;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>WIN32;_SCL_SECURE_NO_WARNINGS;_DEBUG;_CONSOLE;_LIB;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>../../3rdparty/llvm/mybuilddir/include;../../3rdparty/llvm/include;../../src;$(IncludePath)</AdditionalIncludeDirectories>
+      <MultiProcessorCompilation>
+      </MultiProcessorCompilation>
+      <DisableSpecificWarnings>4146;4180;4244;4258;4267;4291;4345;4351;4355;4456;4457;4458;4459;4503;4624;4722;4800</DisableSpecificWarnings>
+      <AdditionalOptions>
+      </AdditionalOptions>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -66,7 +74,13 @@
       <Optimization>MaxSpeed</Optimization>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
-      <PreprocessorDefinitions>WIN32;NDEBUG;_CONSOLE;_LIB;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>WIN32;_SCL_SECURE_NO_WARNINGS;NDEBUG;_CONSOLE;_LIB;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>../../3rdparty/llvm/mybuilddir/include;../../3rdparty/llvm/include;../../src;$(IncludePath)</AdditionalIncludeDirectories>
+      <MultiProcessorCompilation>
+      </MultiProcessorCompilation>
+      <DisableSpecificWarnings>4146;4180;4244;4258;4267;4291;4345;4351;4355;4456;4457;4458;4459;4503;4624;4722;4800</DisableSpecificWarnings>
+      <AdditionalOptions>
+      </AdditionalOptions>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -76,16 +90,107 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="..\..\src\yollvmcompiler.cpp" />
     <ClCompile Include="..\..\src\yolang-l.cpp" />
     <ClCompile Include="..\..\src\yolang-y.cpp" />
     <ClCompile Include="..\..\src\yoparser.cpp" />
+    <ClCompile Include="..\..\src\yoprogcompiler.cpp" />
     <ClCompile Include="src\yomain.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="..\..\src\yollvmcompiler.h" />
+    <ClInclude Include="..\..\src\yodef.h" />
     <ClInclude Include="..\..\src\yolang-l.h" />
     <ClInclude Include="..\..\src\yolang-y.h" />
     <ClInclude Include="..\..\src\yolang.h" />
     <ClInclude Include="..\..\src\yoparser.h" />
+    <ClInclude Include="..\..\src\yoprogcompiler.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\3rdparty\llvm\mybuilddir\lib\Analysis\IPA\LLVMipa.vcxproj">
+      <Project>{dc78ec76-619a-475a-b519-f1efe8f2cbd6}</Project>
+    </ProjectReference>
+    <ProjectReference Include="..\..\3rdparty\llvm\mybuilddir\lib\Analysis\LLVMAnalysis.vcxproj">
+      <Project>{712acb4d-0fc5-4dc1-ade1-e20fe7f5e02a}</Project>
+    </ProjectReference>
+    <ProjectReference Include="..\..\3rdparty\llvm\mybuilddir\lib\Bitcode\Reader\LLVMBitReader.vcxproj">
+      <Project>{236cb4a9-d6b5-4ae5-a706-c6cda0c2b58b}</Project>
+    </ProjectReference>
+    <ProjectReference Include="..\..\3rdparty\llvm\mybuilddir\lib\CodeGen\AsmPrinter\LLVMAsmPrinter.vcxproj">
+      <Project>{76ed219e-34fe-434a-801d-058b3871da46}</Project>
+    </ProjectReference>
+    <ProjectReference Include="..\..\3rdparty\llvm\mybuilddir\lib\CodeGen\LLVMCodeGen.vcxproj">
+      <Project>{9e29805d-3686-4873-8d7c-3708f8a6f5aa}</Project>
+    </ProjectReference>
+    <ProjectReference Include="..\..\3rdparty\llvm\mybuilddir\lib\CodeGen\SelectionDAG\LLVMSelectionDAG.vcxproj">
+      <Project>{0e62b650-3054-474c-8e90-b84eab85c1f9}</Project>
+    </ProjectReference>
+    <ProjectReference Include="..\..\3rdparty\llvm\mybuilddir\lib\ExecutionEngine\LLVMExecutionEngine.vcxproj">
+      <Project>{08508992-f168-47fc-bafd-a3bd584d30de}</Project>
+    </ProjectReference>
+    <ProjectReference Include="..\..\3rdparty\llvm\mybuilddir\lib\ExecutionEngine\MCJIT\LLVMMCJIT.vcxproj">
+      <Project>{1be97e35-3a7c-49c4-8c71-f59abc8fe511}</Project>
+    </ProjectReference>
+    <ProjectReference Include="..\..\3rdparty\llvm\mybuilddir\lib\ExecutionEngine\RuntimeDyld\LLVMRuntimeDyld.vcxproj">
+      <Project>{c701a6eb-44c4-4f3d-aadf-68560b555059}</Project>
+    </ProjectReference>
+    <ProjectReference Include="..\..\3rdparty\llvm\mybuilddir\lib\IR\LLVMCore.vcxproj">
+      <Project>{145ee07c-b891-4fa3-968a-588fd642df97}</Project>
+    </ProjectReference>
+    <ProjectReference Include="..\..\3rdparty\llvm\mybuilddir\lib\MC\LLVMMC.vcxproj">
+      <Project>{0d039ff1-442d-4d91-a7f3-668751dbafef}</Project>
+    </ProjectReference>
+    <ProjectReference Include="..\..\3rdparty\llvm\mybuilddir\lib\MC\MCDisassembler\LLVMMCDisassembler.vcxproj">
+      <Project>{06814cd0-1f4c-442a-97fe-91f563296bc5}</Project>
+    </ProjectReference>
+    <ProjectReference Include="..\..\3rdparty\llvm\mybuilddir\lib\MC\MCParser\LLVMMCParser.vcxproj">
+      <Project>{a4b44116-c548-4809-aca1-0bccb000b9fb}</Project>
+    </ProjectReference>
+    <ProjectReference Include="..\..\3rdparty\llvm\mybuilddir\lib\Object\LLVMObject.vcxproj">
+      <Project>{38c9f85d-590d-4042-9242-8eda45857c10}</Project>
+    </ProjectReference>
+    <ProjectReference Include="..\..\3rdparty\llvm\mybuilddir\lib\ProfileData\LLVMProfileData.vcxproj">
+      <Project>{a9d57ae7-e7ed-4131-89d6-f772832adc76}</Project>
+    </ProjectReference>
+    <ProjectReference Include="..\..\3rdparty\llvm\mybuilddir\lib\Support\LLVMSupport.vcxproj">
+      <Project>{57b6c094-da79-4957-9ba1-0715a4febfb3}</Project>
+    </ProjectReference>
+    <ProjectReference Include="..\..\3rdparty\llvm\mybuilddir\lib\Target\LLVMTarget.vcxproj">
+      <Project>{7e822775-fd04-4579-9ebf-576a9b2bc56d}</Project>
+    </ProjectReference>
+    <ProjectReference Include="..\..\3rdparty\llvm\mybuilddir\lib\Target\X86\AsmParser\LLVMX86AsmParser.vcxproj">
+      <Project>{68bc2661-37db-46e5-b635-8b193644b738}</Project>
+    </ProjectReference>
+    <ProjectReference Include="..\..\3rdparty\llvm\mybuilddir\lib\Target\X86\Disassembler\LLVMX86Disassembler.vcxproj">
+      <Project>{89f2f64b-51d6-48dd-be67-4a247abc69ed}</Project>
+    </ProjectReference>
+    <ProjectReference Include="..\..\3rdparty\llvm\mybuilddir\lib\Target\X86\InstPrinter\LLVMX86AsmPrinter.vcxproj">
+      <Project>{437b48ec-1ea2-4087-a91d-b2eb883b0ec8}</Project>
+    </ProjectReference>
+    <ProjectReference Include="..\..\3rdparty\llvm\mybuilddir\lib\Target\X86\LLVMX86CodeGen.vcxproj">
+      <Project>{364788fa-0373-43a1-8008-1dc8534c61e8}</Project>
+    </ProjectReference>
+    <ProjectReference Include="..\..\3rdparty\llvm\mybuilddir\lib\Target\X86\MCTargetDesc\LLVMX86Desc.vcxproj">
+      <Project>{155eb351-173a-4737-9b0c-d676f090cb59}</Project>
+    </ProjectReference>
+    <ProjectReference Include="..\..\3rdparty\llvm\mybuilddir\lib\Target\X86\TargetInfo\LLVMX86Info.vcxproj">
+      <Project>{eeef9f46-265c-46d2-9608-4f72a0ba009a}</Project>
+    </ProjectReference>
+    <ProjectReference Include="..\..\3rdparty\llvm\mybuilddir\lib\Target\X86\Utils\LLVMX86Utils.vcxproj">
+      <Project>{7b2b510f-c3d7-41f7-bfa7-71dcfecf0ba4}</Project>
+    </ProjectReference>
+    <ProjectReference Include="..\..\3rdparty\llvm\mybuilddir\lib\Transforms\InstCombine\LLVMInstCombine.vcxproj">
+      <Project>{f0b0fe3b-aea6-46bc-8481-a6003cc43c58}</Project>
+    </ProjectReference>
+    <ProjectReference Include="..\..\3rdparty\llvm\mybuilddir\lib\Transforms\Scalar\LLVMScalarOpts.vcxproj">
+      <Project>{e7af0373-646f-427a-90c3-2b48c31ad862}</Project>
+    </ProjectReference>
+    <ProjectReference Include="..\..\3rdparty\llvm\mybuilddir\lib\Transforms\Utils\LLVMTransformUtils.vcxproj">
+      <Project>{8fa9bac1-ebf7-4737-a6cf-c131af7eb502}</Project>
+    </ProjectReference>
+    <ProjectReference Include="..\..\3rdparty\llvm\mybuilddir\ZERO_CHECK.vcxproj">
+      <Project>{ca5203ba-d00b-4f3e-b692-fa56542f58b2}</Project>
+    </ProjectReference>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

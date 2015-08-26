@@ -1,6 +1,8 @@
 #ifndef __YOPARSER_H__
 #define __YOPARSER_H__
 
+#include "yodef.h"
+
 #define YYDEBUG 1
 // #define YYERROR_VERBOSE
 
@@ -11,8 +13,6 @@
 #define YYLTYPE YoParserLocation
 
 #define YO_LEX_MAXFILL 10
-
-#include "yolang.h"
 
 #include "yolang-l.h"
 #include "yolang-y.h"
@@ -94,15 +94,20 @@ struct YoParserStackElement
 	YoParserStackElement();
 };
 
-struct YoParser {
+class YoParser
+{
+public:
 
-	struct LexState {
+	struct LexState
+	{
 		int state;
 		int braceCount;
 		const char * text;
 		LexState * next;
 	};
-	struct LexBrace {
+	
+	struct LexBrace
+	{
 		bool braceEnabled;
 		LexBrace * next;
 	};
@@ -133,10 +138,11 @@ struct YoParser {
 	YoParserNode * list;
 	YoParserNode * module;
 
-	void init(const char * input);
-	void init(const char * input, int len);
+	YoParser(const char * input);
+	YoParser(const char * input, int len);
+	~YoParser();
+	
 	int run();
-	void shutdown();
 	void dump();
 
 	void pushState(int newState, const char * text);
@@ -146,6 +152,11 @@ struct YoParser {
 	void popBrace();
 
 	YoParserNode * newNode(EYoParserNodeType type, YYLTYPE * loc);
+
+private:
+	
+	void init(const char * input);
+	void init(const char * input, int len);
 };
 
 struct YoParserNode

@@ -3,9 +3,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-// #include <malloc.h>
-#include "../../../src/yolang.h"
-#include "../../../src/yoparser.h"
+
+#include "yolang.h"
 
 extern int yodebug;
 
@@ -36,11 +35,19 @@ void main()
 	// buf[size] = '\0';
 	fclose(f);
 
-	YoParser parser;
-	parser.init(buf, size);
-	int i = parser.run();
-	parser.dump();
-	parser.shutdown();
+	{
+		YoParser parser(buf, size);
+		int i = parser.run();
+		parser.dump();
+
+		YoProgCompiler progCompiler(&parser);
+		progCompiler.run();
+
+		printf("\n======================\n\n");
+
+		YoLLVMCompiler llvmCompiler(&progCompiler);
+		llvmCompiler.run();
+	}
 
 	delete[] buf;
 }

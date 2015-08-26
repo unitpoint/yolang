@@ -1,6 +1,6 @@
+#include "yoparser.h"
 #include <stdio.h>
 #include <string.h>
-#include "yoparser.h"
 
 // =====================================================================
 // =====================================================================
@@ -574,6 +574,33 @@ void yoLexTrackRule(YYSTYPE * elem, void * parm, YYLTYPE * loc)
 // =====================================================================
 // =====================================================================
 
+YoParser::YoParser(const char * input)
+{
+	init(input);
+}
+
+YoParser::YoParser(const char * input, int len)
+{
+	init(input, len);
+}
+
+YoParser::~YoParser()
+{
+	YO_ASSERT(!lexStateStack);
+	while (lexStateStack) {
+		LexState * lexState = lexStateStack;
+		lexStateStack = lexState->next;
+		lexState->next = NULL;
+		delete lexState;
+	}
+	while (list) {
+		YoParserNode * node = list;
+		list = node->parserNext;
+		node->parserNext = NULL;
+		delete node;
+	}
+}
+
 void YoParser::init(const char * _input)
 {
 	init(_input, strlen(input));
@@ -607,26 +634,9 @@ int YoParser::run()
 	return yoparse(this);
 }
 
-void YoParser::shutdown()
-{
-	YO_ASSERT(!lexStateStack);
-	while (lexStateStack) {
-		LexState * lexState = lexStateStack;
-		lexStateStack = lexState->next;
-		lexState->next = NULL;
-		delete lexState;
-	}
-	while (list) {
-		YoParserNode * node = list;
-		list = node->parserNext;
-		node->parserNext = NULL;
-		delete node;
-	}
-}
-
 void YoParser::pushState(int newState, const char * text)
 {
-	YoParser::LexState * lexState = new YoParser::LexState();
+	LexState * lexState = new LexState();
 	lexState->state = state;
 	lexState->text = text;
 	lexState->braceCount = braceCount;
@@ -638,7 +648,7 @@ void YoParser::pushState(int newState, const char * text)
 void YoParser::popState()
 {
 	if (lexStateStack) {
-		YoParser::LexState * lexState = lexStateStack;
+		LexState * lexState = lexStateStack;
 		lexStateStack = lexState->next;
 		state = lexState->state;
 		lexState->next = NULL;
@@ -651,7 +661,7 @@ void YoParser::popState()
 
 void YoParser::pushBrace()
 {
-	YoParser::LexBrace * lexBrace = new YoParser::LexBrace();
+	LexBrace * lexBrace = new LexBrace();
 	lexBrace->braceEnabled = braceEnabled;
 	lexBrace->next = lexBraceStack;
 	lexBraceStack = lexBrace;
@@ -661,7 +671,7 @@ void YoParser::pushBrace()
 void YoParser::popBrace()
 {
 	if (lexBraceStack) {
-		YoParser::LexBrace * lexBrace = lexBraceStack;
+		LexBrace * lexBrace = lexBraceStack;
 		lexBraceStack = lexBrace->next;
 		braceEnabled = lexBrace->braceEnabled;
 		lexBrace->next = NULL;

@@ -1,7 +1,14 @@
 module HelloWorld
 
 func main() int {
-	let i mut int
-	i = 10 * 8
+	let i int
+	i = 10 + 8
+	
+	/*
+	let j unsafe * mut int = unsafe & i
+	let v &int = i
+	v = 5
+	&v = 8
+	*/
 	return i
 }
