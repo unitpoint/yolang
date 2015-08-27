@@ -70,4 +70,14 @@
 
 #endif
 
+#if defined _MSC_VER // && !defined IW_SDK
+#define YO_DEBUG_BREAK __debugbreak()
+#elif !defined __GNUC__
+#include <signal.h>
+#define YO_DEBUG_BREAK raise(SIGTRAP)
+// #define DEBUG_BREAK __builtin_trap()
+#else
+#define YO_DEBUG_BREAK
+#endif
+
 #endif // __YODEF_H__

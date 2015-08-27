@@ -42,7 +42,7 @@ func main() {
 
 // ==========================
 
-type Copy contract<T:@> {
+type Copy contract<T> {
 	func Copy() T
 }
 
@@ -59,12 +59,28 @@ func Philosopher.Init(name string, left, right int) {
 // ==========================
 
 type Option enum<T> {
-	Some(T),
 	None,
+	Some(T),
 }
 
 type Iterator contract<T> {
-	func Next() Option<T>
+	func Iter() func() Option<T>
+}
+
+type Vec class<T> {
+	cast Iterator<T>
+}
+
+impl mut Vec<T>: Iterator<T> {
+	func Iter() func() Option<T>
+		let i mut = 0
+		return func() Option<T> {
+			if i >= @count {
+				return None
+			}
+			return Some(@arr[i++])
+		}
+	}
 }
 
 type Philosopher class {
@@ -72,11 +88,16 @@ type Philosopher class {
 	left, right int
 }
 
-func (p &Philosopher) Eat(forks * mut Mutex) {
-	let _lock = {forks[p.left].lock(), forks[p.right].lock()}
-	fmt.printf("%s is eating\n", p.name)
+func<T> Vec<T>.Iterator<T>.Next() Option<T> {
+}
+
+func Philosopher.Eat: * mut Mutex{
+
+func Philosopher.Eat(forks * mut Mutex) {
+	let _lock = {forks[@left].lock(), forks[@right].lock()}
+	fmt.printf("%s is eating\n", @name)
 	thread.SleepMs(1000)
-	fmt.printf("%s is done eating\n", p.name)
+	fmt.printf("%s is done eating\n", @name)
 }
 
 func main() {
@@ -89,5 +110,5 @@ func main() {
     }
 	let forks [6] mut Mutex
 	// philosophers.collect({|p| systhread p.Eat(forks)}).each({|t| t.Wait()})
-	philosophers.collect(func (p &Philosopher) systhread { return systhread p.Eat(forks)}).each(|t| t.Wait())
+	philosophers.collect(func (p * Philosopher) ? { return systhread p.Eat(forks)}).each(|t| t.Wait())
 }

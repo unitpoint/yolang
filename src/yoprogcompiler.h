@@ -12,6 +12,20 @@ class YoProgCompiler
 {
 public:
 
+	enum Error
+	{
+		ERROR_NOTHING,
+		ERROR_UNREACHABLE,
+		// ERROR_PARSER_NODE,
+		ERROR_VAR_NOT_USED,
+		// ERROR_FUNC_STMT,
+		ERROR_NAME_NOT_FOUND,
+		// ERROR_NAME,
+		ERROR_TYPE,
+		ERROR_OP,
+		ERROR_CONVERT_TO_TYPE,
+	};
+
 	enum EType
 	{
 		TYPE_VOID,
@@ -28,6 +42,8 @@ public:
 		TYPE_FLOAT64,
 		TYPE_STRING,
 		TYPE_STRUCT,
+		TYPE_FUNC_NATIVE,
+		TYPE_FUNC_DATA,
 		TYPE_PTR,
 		TYPE_MUT,
 		// ===========
@@ -35,22 +51,109 @@ public:
 		// TYPE_END_STD = TYPE_FLOAT64
 	};
 
-	struct Type
+	class Type
 	{
+	public:
+
 		YoParserNode * parserNode;
 		std::string name;
-		int size;
 		EType etype;
+		// bool isMutable;
 		// bool isGeneric;
 
-		Type(const std::string& name, EType, int size, YoParserNode*);
+		struct {
+			int index;
+		} ext;
+
+		Type(const std::string& name, EType, YoParserNode*);
 		virtual ~Type();
+
+		bool isFloat() const;
 	};
 
-	struct SubType : public Type
+	class SubType : public Type
 	{
+	public:
+
 		Type * subType;
-		SubType(const std::string& name, EType, int size, Type*, YoParserNode*);
+		
+		SubType(const std::string& name, EType, Type*, YoParserNode*);
+		~SubType();
+	};
+
+	class StructType : public Type
+	{
+	public:
+
+		bool isPacked;
+		std::vector<Type*> elements;
+
+		StructType(const std::string& name, YoParserNode*);
+		~StructType();
+	};
+
+	class FuncNativeType : public Type
+	{
+	public:
+
+		Type * resType;
+		std::vector<Type*> argTypes;
+		std::vector<std::string> argNames;
+
+		FuncNativeType(const std::string& name, YoParserNode*);
+		~FuncNativeType();
+	};
+
+	class FuncDataType : public StructType
+	{
+	public:
+
+		FuncNativeType * funcNativeType;
+
+		FuncDataType(const std::string& name, YoParserNode*);
+		~FuncDataType();
+	};
+
+	enum EValue
+	{
+		VALUE_NOTHING,
+		VALUE_STACKVALUE,
+		VALUE_SCOPE,
+	};
+
+	class Value
+	{
+	public:
+
+		EValue evalue;
+
+		std::string name;
+		YoParserNode * parserNode;
+
+		Value(EValue evalue, const std::string& name, YoParserNode*);
+		virtual ~Value();
+
+	private:
+
+		Value(const Value&); // no body
+	};
+
+	class StackValue : public Value
+	{
+	public:
+
+		Type * type;
+		bool isInitialized;
+		bool isUsed;
+		bool isTemp;
+		// bool isClosure;
+
+		struct {
+			int index;
+		} ext;
+
+		StackValue(Type * type, const std::string& name, YoParserNode*);
+		~StackValue();
 	};
 
 	enum EScope
@@ -60,50 +163,42 @@ public:
 		SCOPE_MODULE,
 	};
 
-	struct Variable
+	class Scope // : public Value
 	{
-		YoParserNode * parserNode;
+	public:
+
 		std::string name;
-		Type * type;
-		int index;
-		// bool isClosure;
-
-		Variable(const std::string& name, YoParserNode*);
-	};
-
-	struct Scope
-	{
 		YoParserNode * parserNode;
+
 		Scope * parent;
 		EScope escope;
 
-		std::vector<Variable*> vars;
+		std::vector<StackValue*> stackValues;
 
-		Scope(Scope * parent, EScope, YoParserNode*);
+		Scope(Scope * parent, EScope, const std::string& name, YoParserNode*);
 		virtual ~Scope();
 	};
 
-	struct Expression;
-	struct Function: public Scope
+	class Operation;
+	class Function : public Scope
 	{
-		std::string name;
-		Type * resType;
-		int argsNumber;
-		// bool isGeneric;
+	public:
 
-		std::vector<Expression*> ops;
+		FuncNativeType * funcNativeType;
+		std::vector<Operation*> ops;
 
-		Function(Scope * parent, const std::string& name, YoParserNode*);
+		struct {
+			int index;
+		} ext;
+
+		Function(Scope * parent, FuncNativeType * funcNativeType, const std::string& name, YoParserNode*);
 		~Function();
 	};
 
-	struct Module: public Scope
+	class Module : public Scope
 	{
-		std::string name;
+	public:
 
-		// std::map<std::string, Module*> imports;
-		// std::map<std::string, Type*> types;
-		// std::map<std::string, Function*> funcs;
 		std::vector<Function*> funcs;
 
 		Module(const std::string& name, YoParserNode*);
@@ -113,24 +208,24 @@ public:
 	enum EName
 	{
 		NAME_UNKNOWN,
-		NAME_FUNC_VAR,
-		NAME_FUNC_TYPE,
-		NAME_PARENT_FUNC_VAR,
-		NAME_PARENT_FUNC_TYPE,
-		NAME_MODULE_VAR,
-		NAME_MODULE_TYPE,
-		NAME_MODULE_FUNC,
-		NAME_MODULE_IMPORT,
+		NAME_STACKVALUE,
+		NAME_CLOSUREVALUE,
 	};
 
-	struct NameAccess
+	struct NameInfo
 	{
-		Scope * scope;
-		int upCount;
-		Variable * var;
 		EName ename;
+		Scope * scope;
 
-		NameAccess();
+		union {
+			struct {
+				int count;
+				StackValue * value;
+			} closureValue;
+
+			StackValue * stackValue;
+		};
+		// NameInfo();
 	};
 
 	enum EOperation
@@ -146,69 +241,112 @@ public:
 		OP_CAST_FP_TO_UI,
 		OP_CAST_FP_TRUNC,
 		OP_CAST_FP_EXT,
+		
+		OP_CAST_PTR,
 
+		OP_CONST_NULL,
 		OP_CONST_INT,
+		OP_CONST_FLOAT,
+		
+		OP_STACKVALUE_PTR,
+		OP_STRUCTELEMENT_PTR,
+		OP_FUNC,
 
-		OP_READ_LOCAL,
-		OP_WRITE_LOCAL,
+		OP_LOAD_BY_PTR,
+		// OP_LOAD_BY_FUNC,
+		OP_STORE,
 
-		OP_READ_UPVAR,
-		OP_WRITE_UPVAR,
+		// OP_READ_LOCAL,
+		// OP_WRITE_LOCAL,
 
-		OP_READ_GLOBAL,
-		OP_WRITE_GLOBAL,
+		// OP_READ_UPVAR,
+		// OP_WRITE_UPVAR,
+
+		// OP_READ_GLOBAL,
+		// OP_WRITE_GLOBAL,
 
 		OP_RETURN,
+		OP_CALL,
 		OP_BIN_ADD,
+		// OP_SUB_FUNC,
+
+		// OP_LIST,
 	};
 
-	struct Expression
+	class Operation
 	{
+	public:
+
 		YoParserNode * parserNode;
 		Type * type;
 
-		EOperation op;
-		NameAccess nameAccess;
+		EOperation eop;
+		std::vector<Operation*> ops;
+		
+		// NameInfo nameInfo;
 
 		union {
 			struct {
-				YO_U64 ival64;
+				YO_U64 val;
 				YO_BYTE bits;
 				bool isSigned;
 			} constInt;
 
 			struct {
-				float fval32;
+				double fval;
+				// float fval32;
 			} constFloat;
 
 			struct {
-				double fval64;
-			} constDouble;
+				Function * func;
+			} func;
+
+			/* struct {
+				StackValue * stackValue;
+				int index;
+			} stackValueElement; */
+			int structElementIndex;
+
+			struct {
+				int upCount;
+				StackValue * value;
+			} upvalue;
+
+			StackValue * stackValue;
+
+			struct {
+				FuncDataType * funcDataType;
+				int args;
+			} call;
 		};
 
-		std::vector<Expression*> list;
-
-		Expression(EOperation, YoParserNode*);
-		virtual ~Expression();
-	};
-
-	struct Statement
-	{
-		YoParserNode * parserNode;
-
+		Operation(EOperation, YoParserNode*);
+		// Operation(StackValue * stackValue, YoParserNode*);
+		virtual ~Operation();
 	};
 
 	YoParser * parser;
 
 	std::vector<Module*> modules;
-	std::map<std::string, Type*> progTypes;
+
+	Error error;
+	std::string errorMsg;
+	YoParserNode * errorNode;
 
 	YoProgCompiler(YoParser*);
 	~YoProgCompiler();
 
+	void reset();
+
+	void resetError();
+	void setError(Error);
+	void setError(Error, YoParserNode*, const char * msg, ...);
+	void setError(Error, YoParserNode*, const std::string& msg);
+	bool isError() const;
+
 	bool run();
 
-	bool findName(NameAccess& out, Scope*, const std::string&);
+	bool findName(NameInfo& out, Scope*, const std::string&);
 
 	static std::string getTokenStr(YoParserNode*);
 
@@ -222,38 +360,70 @@ protected:
 
 	struct CastOp
 	{
+		EType extType;
 		EOperation op;
 		ECastType castType;
 
 		CastOp() : op(OP_NOP), castType(CAST_BY_HAND) {}
-		CastOp(EOperation _op, ECastType _castType = CAST_BY_HAND) : op(_op), castType(_castType) {}
+		CastOp(EType _extType, EOperation _op, ECastType _castType = CAST_BY_HAND) : extType(_extType), op(_op), castType(_castType) {}
 	};
 
 	std::map<int, CastOp> convertOps;
+
+	std::vector<Operation*> ops;
+
+	std::map<std::string, Type*> types;
+
+	Operation * newOperation(EOperation, YoParserNode*);
+	Operation * newStackValuePtrOp(StackValue * value, YoParserNode*);
+	Operation * newStructElementPtrOp(Operation * ptrOp, int index, YoParserNode*);
 
 	int getConvertKey(EType from, EType to);
 	void initConvertOps();
 
 	void collectNodesInReversList(std::vector<YoParserNode*>& out, YoParserNode*);
 
-	Type * getPrimitiveType(int stdType);
-	Type * getIntType(int bits, bool isSigned);
-	Type * getType(Scope*, YoParserNode*);
+	Type * newType(const std::string& name, EType, YoParserNode*);
+	SubType * newSubType(const std::string& name, EType, Type*, YoParserNode*);
+	StructType * newStructType(const std::string& name, YoParserNode*);
+	FuncDataType * newFuncDataType(const std::string& name, YoParserNode*);
+	FuncNativeType * newFuncNativeType(const std::string& name, YoParserNode*);
 
-	bool addStmt(Scope*, Expression*);
+	Type * getType(EType);
+	Type * getVoidPtrType();
+	Type * getIntType(int bits, bool isSigned);
+	Type * getFloatType(int bits);
+	Type * getMutType(Type*, YoParserNode* = NULL);
+	Type * getPtrType(Type*, YoParserNode* = NULL);
+	Type * getIndirectType(Type * ptrType, YoParserNode* = NULL);
+	Type * getParserStdType(int stdType);
+	Type * getParserType(YoParserNode*);
+	FuncNativeType * getFuncNativeType(YoParserNode*);
+	FuncDataType * getFuncDataType(FuncNativeType*);
+	StructType * getStructType(const std::vector<Type*>& elements, YoParserNode*);
+
+	StackValue * allocTempValue(Scope*, Type * type, const std::string& name, YoParserNode*);
+
+	bool addStmt(Scope*, Operation*);
 	Function * getFunction(Scope*);
+	Module * getModule(Scope*);
 
 	bool compileModule(YoParserNode*);
-	bool compileModuleFunc(Module*, YoParserNode*);
+	Function * compileFunc(Scope*, YoParserNode*);
 	bool compileFuncBody(Function*, YoParserNode*);
-	bool compileDeclVar(Scope*, YoParserNode*);
-	bool exprToStmt(Scope*, Expression*);
+	StackValue * compileDeclVar(Scope*, YoParserNode*);
+	// bool exprToStmt(Scope*, Expression*);
 	bool compileStmtBinOp(Scope*, YoParserNode*);
+	bool compileStmtAssign(Scope*, YoParserNode*);
 	bool compileStmtReturn(Scope*, YoParserNode*);
-	Expression * compileAssignOp(Scope*, YoParserNode*);
-	Expression * compileBinOp(Scope*, YoParserNode*);
-	Expression * compileExpr(Scope*, YoParserNode*);
-	Expression * convertExprToType(Scope*, Expression*, Type*, bool freeOnError);
+	Operation * compileSubFunc(Scope*, YoParserNode*);
+	Operation * compileCall(Scope*, YoParserNode*);
+	Operation * compileAssign(Scope*, YoParserNode*);
+	Operation * compileBinOp(Scope*, YoParserNode*);
+	Operation * compileOp(Scope*, YoParserNode*);
+	Operation * compileValueOp(Scope*, YoParserNode*);
+	Operation * convertOpToType(Scope*, Operation*, Type*);
+	Operation * convertOpToValue(Scope*, Operation*);
 };
 
 #endif // __YOPROGCOMPILER_H__

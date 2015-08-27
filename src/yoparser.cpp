@@ -19,6 +19,8 @@ const char * yoTokenName(int token)
 {
 	switch (token) {
 	case T_ASSIGN: return "=";
+	case T_INIT_ASSIGN: return "INIT =";
+	case T_PROP_ASSIGN: return "PROP =";
 	case T_DECL_ASSIGN: return ":=";
 	case T_XORXOR: return "^^";
 	case T_OROR: return "||";
@@ -260,30 +262,30 @@ int yoLexIntRadix(YYSTYPE * elem, int radix, int skipEnd, void * parm, YYLTYPE *
 			break;
 		}
 	}
-	YO_U64 ival64 = 0;
-	YO_U32 ival32 = 0;
-	YO_U16 ival16 = 0;
-	YO_BYTE ival8 = 0;
+	YO_U64 val64 = 0;
+	YO_U32 val32 = 0;
+	YO_U16 val16 = 0;
+	YO_BYTE val8 = 0;
 	switch (bits) {
 	case 8:
-		if (!parseInt(str, end, radix, ival8)) {
+		if (!parseInt(str, end, radix, val8)) {
 			return 0;
 		}
-		ival64 = ival8;
+		val64 = val8;
 		break;
 
 	case 16:
-		if (!parseInt(str, end, radix, ival16)) {
+		if (!parseInt(str, end, radix, val16)) {
 			return 0;
 		}
-		ival64 = ival16;
+		val64 = val16;
 		break;
 
 	case 32:
-		if (!parseInt(str, end, radix, ival32)) {
+		if (!parseInt(str, end, radix, val32)) {
 			return 0;
 		}
-		ival64 = ival32;
+		val64 = val32;
 		break;
 
 	default:
@@ -291,18 +293,18 @@ int yoLexIntRadix(YYSTYPE * elem, int radix, int skipEnd, void * parm, YYLTYPE *
 		// no break
 
 	case 64:
-		if (!parseInt(str, end, radix, ival64)) {
+		if (!parseInt(str, end, radix, val64)) {
 			return 0;
 		}
 		if (!skipEnd && sizeof(int)*8 == 32) {
-			if ((YO_U64)(int)ival64 == ival64) {
+			if ((YO_U64)(int)val64 == val64) {
 				bits = 32;
 			}
 		}
 		break;
 	}
 	YoParserNode * node = parser->newNode(YO_NODE_CONST_INT, loc);
-	node->data.constInt.ival64 = ival64;
+	node->data.constInt.val = val64;
 	node->data.constInt.bits = bits;
 	node->data.constInt.isSigned = isSigned;
 	elem->node = node;
@@ -343,13 +345,13 @@ int yoLexFloat(YYSTYPE * elem, int skipEnd, void * parm, YYLTYPE * loc)
 	}
 	if (bits == 32) {
 		YoParserNode * node = parser->newNode(YO_NODE_CONST_FLOAT, loc);
-		node->data.constFloat.fval32 = (float)fval64;
+		node->data.constFloat.fval = fval64;
 		elem->node = node;
 	}
 	else{
 		YO_ASSERT(bits == 64);
 		YoParserNode * node = parser->newNode(YO_NODE_CONST_DOUBLE, loc);
-		node->data.constDouble.fval64 = fval64;
+		node->data.constFloat.fval = fval64;
 		elem->node = node;
 	}
 	return T_DNUMBER;
@@ -702,8 +704,8 @@ static const char * yoFuncOpStr(int op)
 	case T_FUNC: break;
 	case T_GET: return "GET";
 	case T_SET: return "SET";
-	case T_EXPR_FUNC: return "EXPR FUNC";
-	case T_EXPR_LAMBDA: return "EXPR LAMBDA";
+	case T_SUB_FUNC: return "SUB FUNC";
+	case T_LAMBDA: return "LAMBDA";
 	}
 	return "FUNC";
 }
@@ -797,15 +799,15 @@ static void yoParserDumpNode(YoParserNode * node, int depth, EYoParserNodeScopeT
 		break;
 
 	case YO_NODE_CONST_INT:
-		printf("%s%d %llu", node->data.constInt.isSigned ? "I" : "U", node->data.constInt.bits, node->data.constInt.ival64);
+		printf("%s%d %llu", node->data.constInt.isSigned ? "I" : "U", node->data.constInt.bits, node->data.constInt.val);
 		break;
 
 	case YO_NODE_CONST_FLOAT:
-		printf("F32 %f", node->data.constFloat.fval32);
+		printf("F32 %f", (float)node->data.constFloat.fval);
 		break;
 
 	case YO_NODE_CONST_DOUBLE:
-		printf("F64 %lf", node->data.constDouble.fval64);
+		printf("F64 %lf", (double)node->data.constFloat.fval);
 		break;
 
 	case YO_NODE_NAME:
@@ -825,6 +827,18 @@ static void yoParserDumpNode(YoParserNode * node, int depth, EYoParserNodeScopeT
 				printf("NAME ");
 			}
 			printf("'%s'", name);
+		}
+		break;
+
+	case YO_NODE_ASSIGN:
+		if (scope == YO_NODE_SCOPE_OP) {
+			printf("(");
+		}
+		yoParserDumpNode(node->data.assign.left, depth, YO_NODE_SCOPE_OP);
+		printf(" %s ", yoTokenName(node->data.assign.op));
+		yoParserDumpNode(node->data.assign.right, depth, YO_NODE_SCOPE_OP);
+		if (scope == YO_NODE_SCOPE_OP) {
+			printf(")");
 		}
 		break;
 
@@ -850,8 +864,16 @@ static void yoParserDumpNode(YoParserNode * node, int depth, EYoParserNodeScopeT
 		printf(")");
 		break;
 
-	case YO_NODE_CONST:
-		printf("CONST %s", yoTokenName(node->data.constOp));
+	case YO_NODE_CONST_NULL:
+		printf("NULL");
+		break;
+
+	case YO_NODE_CONST_TRUE:
+		printf("TRUE");
+		break;
+
+	case YO_NODE_CONST_FALSE:
+		printf("FALSE");
 		break;
 
 	case YO_NODE_TYPE_STD_NAME:
@@ -1060,15 +1082,14 @@ void YoParser::dump()
 
 YoParserNode * YoParser::newNode(EYoParserNodeType type, YYLTYPE * loc)
 {
+	return newNode(type, loc->token);
+}
+
+YoParserNode * YoParser::newNode(EYoParserNodeType type, const YoParserToken& token)
+{
 	YoParserNode * node = new YoParserNode();
 	node->type = type;
-#if 1
-	node->token = loc->token;
-#else
-	node->token.str = text;
-	node->token.len = textLen;
-	node->token.line = line;
-#endif
+	node->token = token;
 	node->prev = NULL;
 	memset(&node->data, 0, sizeof(node->data));
 	
@@ -1077,51 +1098,6 @@ YoParserNode * YoParser::newNode(EYoParserNodeType type, YYLTYPE * loc)
 	listSize++;
 	return node;
 }
-
-/*
-YoParserNode::YoParserNode(EYoParserNodeType _type, YoParser * parser)
-{
-	type = _type;
-	parserNext = parser->list;
-	parser->list = this;
-	parser->listSize++;
-	token.str = parser->text;
-	token.len = parser->textLen;
-	token.line = parser->line;
-	prev = NULL;
-	memset(&data, 0, sizeof(data));
-}
-*/
-
-/*
-YoParserNode::~YoParserNode()
-{
-	reset();
-}
-
-void YoParserNode::reset()
-{
-	switch (type) {
-	case YO_NODE_EMPTY:
-		return;
-
-	case YO_NODE_NAME:
-	case YO_NODE_INT:
-	case YO_NODE_DOUBLE:
-		break;
-
-	case YO_NODE_BIN_OP:
-		// delete data.binOp.nodes[0];
-		// delete data.binOp.nodes[1];
-		break;
-
-	case YO_NODE_STATEMENT:
-		break;
-	}
-	memset(&data, 0, sizeof(data));
-	type = YO_NODE_EMPTY;
-}
-*/
 
 // =====================================================================
 // =====================================================================
@@ -1194,9 +1170,24 @@ void yoParserList(YYSTYPE * r, YYSTYPE * a, YYSTYPE * b, void * parm, YYLTYPE * 
 	r->node = b->node;
 }
 
+void yoParserAssign(YYSTYPE * r, YYSTYPE * a, YYSTYPE * b, int op, void * parm, YYLTYPE * loc)
+{
+	YoParser * parser = dynamic_cast<YoParser*>((YoParser*)parm);
+	YO_ASSERT(op == T_ASSIGN || op == T_INIT_ASSIGN || op == T_PROP_ASSIGN);
+	YO_ASSERT(a->node);
+	YO_ASSERT(b->node);
+	YoParserNode * node = NULL;
+	node = parser->newNode(YO_NODE_ASSIGN, loc);
+	node->data.assign.op = op;
+	node->data.assign.left = a->node;
+	node->data.assign.right = b->node;
+	r->node = node;
+}
+
 void yoParserBinOp(YYSTYPE * r, YYSTYPE * a, YYSTYPE * b, int op, void * parm, YYLTYPE * loc)
 {
 	YoParser * parser = dynamic_cast<YoParser*>((YoParser*)parm);
+	YO_ASSERT(op != T_ASSIGN && op != T_INIT_ASSIGN && op != T_PROP_ASSIGN);
 	YO_ASSERT(a->node);
 	YO_ASSERT(b->node);
 	YoParserNode * node = NULL;
@@ -1244,9 +1235,23 @@ void yoParserBinOp(YYSTYPE * r, YYSTYPE * a, YYSTYPE * b, int op, void * parm, Y
 void yoParserConst(YYSTYPE * r, int op, void * parm, YYLTYPE * loc)
 {
 	YoParser * parser = dynamic_cast<YoParser*>((YoParser*)parm);
-	YoParserNode * node = parser->newNode(YO_NODE_CONST, loc);
-	node->data.constOp = op;
-	r->node = node;
+	switch (op) {
+	default:
+		YO_ASSERT(false);
+		// no break
+
+	case T_NULL:
+		r->node = parser->newNode(YO_NODE_CONST_NULL, loc);
+		break;
+
+	case T_TRUE:
+		r->node = parser->newNode(YO_NODE_CONST_TRUE, loc);
+		break;
+
+	case T_FALSE:
+		r->node = parser->newNode(YO_NODE_CONST_FALSE, loc);
+		break;
+	}
 }
 
 void yoParserTypeStdName(YYSTYPE * r, int op, void * parm, YYLTYPE * loc)
@@ -1400,10 +1405,10 @@ void yoParserNewObjProps(YYSTYPE * r, YYSTYPE * name, YYSTYPE * prop_list, void 
 void yoParserDeclVar(YYSTYPE * r, YYSTYPE * name, YYSTYPE * type, void * parm, YYLTYPE * loc)
 {
 	YoParser * parser = dynamic_cast<YoParser*>((YoParser*)parm);
-	YO_ASSERT(type->node && type->node->isType());
+	YO_ASSERT(!type || type->node && type->node->isType());
 	YO_ASSERT(name->node && name->node->type == YO_NODE_NAME);
 	YoParserNode * node = parser->newNode(YO_NODE_DECL_VAR, loc);
-	node->data.declVar.type = type->node;
+	node->data.declVar.type = type ? type->node : NULL;
 	node->data.declVar.name = name->node;
 	// node->token = name->node->token;
 	r->node = node;

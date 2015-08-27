@@ -26,10 +26,13 @@ enum EYoParserNodeType {
 	YO_NODE_CONST_INT,
 	YO_NODE_CONST_FLOAT,
 	YO_NODE_CONST_DOUBLE,
+	YO_NODE_ASSIGN,
 	YO_NODE_BIN_OP,
 	YO_NODE_CONCAT,
 	YO_NODE_UNARY_OP,
-	YO_NODE_CONST,
+	YO_NODE_CONST_NULL,
+	YO_NODE_CONST_TRUE,
+	YO_NODE_CONST_FALSE,
 	YO_NODE_SINGLE_QUOTED_STRING,
 	YO_NODE_QUOTED_STRING,
 	YO_NODE_TYPE_STD_NAME,
@@ -151,6 +154,7 @@ public:
 	void pushBrace();
 	void popBrace();
 
+	YoParserNode * newNode(EYoParserNodeType type, const YoParserToken& token);
 	YoParserNode * newNode(EYoParserNodeType type, YYLTYPE * loc);
 
 private:
@@ -180,20 +184,21 @@ struct YoParserNode
 		} import;
 
 		struct {
-			YO_U64 ival64;
+			YO_U64 val;
 			YO_BYTE bits;
 			bool isSigned;
 		} constInt;
 
 		struct {
-			float fval32;
+			// float fval32;
+			float fval;
 		} constFloat;
 
-		struct {
+		/* struct {
 			double fval64;
-		} constDouble;
+		} constDouble; */
 
-		int constOp; // null, true, false
+		// int constOp; // null, true, false
 		int typeStdName;
 
 		struct {
@@ -260,6 +265,12 @@ struct YoParserNode
 			YoParserNode * expr;
 			YoParserNode * type;
 		} cast;
+
+		struct {
+			YoParserNode * left;
+			YoParserNode * right;
+			int op;
+		} assign;
 
 		struct {
 			int op;

@@ -35,18 +35,28 @@ void main()
 	// buf[size] = '\0';
 	fclose(f);
 
-	{
+	for(;;){
 		YoParser parser(buf, size);
 		int i = parser.run();
 		parser.dump();
 
 		YoProgCompiler progCompiler(&parser);
 		progCompiler.run();
+		if (progCompiler.isError()) {
+			printf("\n======================\n%s\n", progCompiler.errorMsg.c_str());
+			break;
+		}
 
 		printf("\n======================\n\n");
 
 		YoLLVMCompiler llvmCompiler(&progCompiler);
 		llvmCompiler.run();
+		if (llvmCompiler.isError()) {
+			printf("\n======================\n%s\n", llvmCompiler.errorMsg.c_str());
+			break;
+		}
+
+		break;
 	}
 
 	delete[] buf;
