@@ -20,6 +20,7 @@ public:
 	};
 
 	YoProgCompiler * progCompiler;
+	void * mainFunc;
 
 	Error error;
 	std::string errorMsg;
@@ -70,7 +71,7 @@ protected:
 	llvm::Instruction::CastOps getCastOp(YoProgCompiler::EOperation progOp);
 	llvm::Instruction::BinaryOps getBinOp(YoProgCompiler::EOperation progOp, bool isFloat);
 
-	bool compileModule(YoProgCompiler::Module*);
+	bool compileModule(ModuleParams*);
 	llvm::Function * compileFunc(ModuleParams*, YoProgCompiler::Function*);
 	llvm::AllocaInst * allocaVar(FuncParams*, YoProgCompiler::Scope*, YoProgCompiler::StackValue*);
 	llvm::Value * compileOp(FuncParams*, YoProgCompiler::Scope*, YoProgCompiler::Operation*);

@@ -1,14 +1,14 @@
 module HelloWorld
 
 
-func main() int64 {
-	let i int64
+func main() int32 {
+	let i int32
 	i = 10i8 + 8u16
 	
 	// let k
 	let j = i + 2.5
 	
-	let f = func() int64 {
+	let f = func() int32 {
 		return 3
 	}
 	
@@ -18,5 +18,5 @@ func main() int64 {
 	v = 5
 	&v = 8
 	*/
-	return j + f()
+	return (j + f()) as int32
 }

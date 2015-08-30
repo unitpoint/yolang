@@ -422,7 +422,14 @@ protected:
 	Operation * compileBinOp(Scope*, YoParserNode*);
 	Operation * compileOp(Scope*, YoParserNode*);
 	Operation * compileValueOp(Scope*, YoParserNode*);
-	Operation * convertOpToType(Scope*, Operation*, Type*);
+
+	enum EConvertType
+	{
+		CONVERT_AUTO,
+		CONVERT_BY_HAND
+	};
+
+	Operation * convertOpToType(Scope*, Operation*, Type*, EConvertType = CONVERT_AUTO);
 	Operation * convertOpToValue(Scope*, Operation*);
 };
 

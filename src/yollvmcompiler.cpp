@@ -13,6 +13,7 @@
 #include "llvm/PassManager.h"
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Transforms/Scalar.h"
+#include "llvm/Support/Host.h"
 
 using namespace llvm;
 
@@ -21,6 +22,7 @@ static bool llvmInitialized = false;
 YoLLVMCompiler::YoLLVMCompiler(YoProgCompiler * p)
 {
 	progCompiler = p;
+	mainFunc = NULL;
 	error = ERROR_NOTHING;
 	context = NULL;
 	// builder = NULL;
@@ -91,16 +93,74 @@ bool YoLLVMCompiler::run()
 	
 	context = &getGlobalContext();
 	
+	ModuleParams module;
+	// module.progModule = progModule;
+	module.name = "YO jit module"; // progModule->name;
+
+	std::unique_ptr<Module> owner = make_unique<Module>(module.name.c_str(), *context);
+	module.llvmModule = owner.get();
+
+#ifdef _WIN32
+	std::string triple = llvm::sys::getProcessTriple();
+	module.llvmModule->setTargetTriple(triple + "-elf");
+#endif
+
+	std::string errStr;
+	module.llvmExecutionEngine =
+		EngineBuilder(std::move(owner))
+		.setErrorStr(&errStr)
+		.setMCJITMemoryManager(llvm::make_unique<SectionMemoryManager>())
+		.create();
+
+	if (!module.llvmExecutionEngine) {
+		setError(ERROR_UNREACHABLE, "Could not create ExecutionEngine: %s", errStr.c_str());
+		return false;
+	}
+
+	FunctionPassManager FPM(module.llvmModule);
+
+	// Set up the optimizer pipeline.  Start with registering info about how the
+	// target lays out data structures.
+	module.llvmModule->setDataLayout(module.llvmExecutionEngine->getDataLayout());
+	FPM.add(new DataLayoutPass());
+#if 1
+	// Provide basic AliasAnalysis support for GVN.
+	FPM.add(createBasicAliasAnalysisPass());
+	// Do simple "peephole" optimizations and bit-twiddling optzns.
+	FPM.add(createInstructionCombiningPass());
+	// Reassociate expressions.
+	FPM.add(createReassociatePass());
+	// Eliminate Common SubExpressions.
+	FPM.add(createGVNPass());
+	// Simplify the control flow graph (deleting unreachable blocks, etc).
+	FPM.add(createCFGSimplificationPass());
+#endif
+	FPM.doInitialization();
+
+	// Set the global so the code gen can use this.
+	module.llvmFPM = &FPM;
+
 	// main
 	for (int i = (int)progCompiler->modules.size() - 1; i >= 0; i--) {
 		YoProgCompiler::Module * progModule = progCompiler->modules[i];
-		if (!compileModule(progModule)) {
+		module.progModule = progModule;
+		if (!compileModule(&module)) {
 			YO_ASSERT(isError());
 			context = NULL;
 			return false;
 		}
 	}
 	
+	verifyModule(*module.llvmModule);
+
+	module.llvmModule->dump();
+
+	module.llvmExecutionEngine->finalizeObject();
+	Function * func = module.llvmModule->getFunction("main");
+	if (func) {
+		mainFunc = module.llvmExecutionEngine->getPointerToFunction(func);
+	}
+
 	context = NULL;
 	return true;
 }
@@ -247,60 +307,15 @@ llvm::Instruction::BinaryOps YoLLVMCompiler::getBinOp(YoProgCompiler::EOperation
 	return Instruction::BinaryOps::Add;
 }
 
-bool YoLLVMCompiler::compileModule(YoProgCompiler::Module * progModule)
+bool YoLLVMCompiler::compileModule(ModuleParams * module)
 {
-	ModuleParams module;
-	module.progModule = progModule;
-	module.name = progModule->name;
-
-	std::unique_ptr<Module> owner = make_unique<Module>(module.name.c_str(), *context);
-	module.llvmModule = owner.get();
-
-	std::string errStr;
-	module.llvmExecutionEngine =
-		EngineBuilder(std::move(owner))
-		.setErrorStr(&errStr)
-		.setMCJITMemoryManager(llvm::make_unique<SectionMemoryManager>())
-		.create();
-
-	if (!module.llvmExecutionEngine) {
-		setError(ERROR_UNREACHABLE, "Could not create ExecutionEngine: %s", errStr.c_str());
-		return false;
-	}
-
-	FunctionPassManager FPM(module.llvmModule);
-
-	// Set up the optimizer pipeline.  Start with registering info about how the
-	// target lays out data structures.
-	module.llvmModule->setDataLayout(module.llvmExecutionEngine->getDataLayout());
-	FPM.add(new DataLayoutPass());
-#if 0
-	// Provide basic AliasAnalysis support for GVN.
-	FPM.add(createBasicAliasAnalysisPass());
-	// Do simple "peephole" optimizations and bit-twiddling optzns.
-	FPM.add(createInstructionCombiningPass());
-	// Reassociate expressions.
-	FPM.add(createReassociatePass());
-	// Eliminate Common SubExpressions.
-	FPM.add(createGVNPass());
-	// Simplify the control flow graph (deleting unreachable blocks, etc).
-	FPM.add(createCFGSimplificationPass());
-#endif
-	FPM.doInitialization();
-
-	// Set the global so the code gen can use this.
-	module.llvmFPM = &FPM;
-
 	// for (int i = 0; i < (int)progModule->funcs.size(); i++) {
-	for (int i = (int)progModule->funcs.size() - 1; i >= 0; i--) {
-		YoProgCompiler::Function * progFunc = progModule->funcs[i];
-		if (!compileFunc(&module, progFunc)) {
+	for (int i = (int)module->progModule->funcs.size() - 1; i >= 0; i--) {
+		YoProgCompiler::Function * progFunc = module->progModule->funcs[i];
+		if (!compileFunc(module, progFunc)) {
 			return false;
 		}
 	}
-	
-	verifyModule(*module.llvmModule);
-	module.llvmModule->dump();
 	return true;
 }
 

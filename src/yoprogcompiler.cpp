@@ -799,6 +799,9 @@ YoProgCompiler::Operation * YoProgCompiler::compileOp(Scope * scope, YoParserNod
 
 	case YO_NODE_CALL:
 		return compileCall(scope, node);
+
+	case YO_NODE_CAST:
+		return convertOpToType(scope, compileOp(scope, node->data.cast.expr), getParserType(node->data.cast.type), CONVERT_BY_HAND);
 	}
 	setError(ERROR_UNREACHABLE, node, "Error parser node: %d", (int)node->type);
 	return NULL;
@@ -1289,7 +1292,7 @@ YoProgCompiler::Operation * YoProgCompiler::convertOpToValue(Scope * scope, Oper
 	return op;
 }
 
-YoProgCompiler::Operation * YoProgCompiler::convertOpToType(Scope * scope, Operation * op, Type * type)
+YoProgCompiler::Operation * YoProgCompiler::convertOpToType(Scope * scope, Operation * op, Type * type, EConvertType convertType)
 {
 	if (!op) {
 		YO_ASSERT(isError());
@@ -1313,7 +1316,7 @@ YoProgCompiler::Operation * YoProgCompiler::convertOpToType(Scope * scope, Opera
 	}
 	std::map<int, CastOp>::iterator it = convertOps.find(getConvertKey(op->type->etype, type->etype));
 	if (it != convertOps.end()) {
-		if (it->second.castType == CAST_AUTO) {
+		if (it->second.castType == CAST_AUTO || convertType == CONVERT_BY_HAND) {
 			Operation * castOp = newOperation(it->second.op, op->parserNode);
 			castOp->type = type;
 			castOp->ops.push_back(op);

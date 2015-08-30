@@ -44,13 +44,20 @@ void main()
 		progCompiler.run();
 		if (progCompiler.isError()) {
 			printf("\n======================\n%s\n", progCompiler.errorMsg.c_str());
+			if (progCompiler.errorNode) {
+				printf("line: %d, token: %s\n", progCompiler.errorNode->token.line, YoProgCompiler::getTokenStr(progCompiler.errorNode).c_str());
+			}
 			break;
 		}
 
 		printf("\n======================\n\n");
 
 		YoLLVMCompiler llvmCompiler(&progCompiler);
-		llvmCompiler.run();
+		if (llvmCompiler.run()) {
+			YO_INT32 (*func)(void*) = (YO_INT32(*)(void*))(intptr_t)llvmCompiler.mainFunc;
+			YO_INT32 r = func(NULL);
+			printf("\nResult: %d\n", r);
+		}
 		if (llvmCompiler.isError()) {
 			printf("\n======================\n%s\n", llvmCompiler.errorMsg.c_str());
 			break;
