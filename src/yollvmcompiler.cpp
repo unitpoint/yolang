@@ -77,7 +77,7 @@ bool YoLLVMCompiler::isError() const
 	return error != ERROR_NOTHING;
 }
 
-bool YoLLVMCompiler::run()
+bool YoLLVMCompiler::run(EBuildType buildType)
 {
 	if (progCompiler->isError()) {
 		setError(ERROR_IN_PROGCOMPILER, "Error in prog compiler");
@@ -123,18 +123,18 @@ bool YoLLVMCompiler::run()
 	// target lays out data structures.
 	module.llvmModule->setDataLayout(module.llvmExecutionEngine->getDataLayout());
 	FPM.add(new DataLayoutPass());
-#if 1
-	// Provide basic AliasAnalysis support for GVN.
-	FPM.add(createBasicAliasAnalysisPass());
-	// Do simple "peephole" optimizations and bit-twiddling optzns.
-	FPM.add(createInstructionCombiningPass());
-	// Reassociate expressions.
-	FPM.add(createReassociatePass());
-	// Eliminate Common SubExpressions.
-	FPM.add(createGVNPass());
-	// Simplify the control flow graph (deleting unreachable blocks, etc).
-	FPM.add(createCFGSimplificationPass());
-#endif
+	if (buildType == BUILD_RELEASE) {
+		// Provide basic AliasAnalysis support for GVN.
+		FPM.add(createBasicAliasAnalysisPass());
+		// Do simple "peephole" optimizations and bit-twiddling optzns.
+		FPM.add(createInstructionCombiningPass());
+		// Reassociate expressions.
+		FPM.add(createReassociatePass());
+		// Eliminate Common SubExpressions.
+		FPM.add(createGVNPass());
+		// Simplify the control flow graph (deleting unreachable blocks, etc).
+		FPM.add(createCFGSimplificationPass());
+	}
 	FPM.doInitialization();
 
 	// Set the global so the code gen can use this.
@@ -187,6 +187,7 @@ llvm::Type * YoLLVMCompiler::getType(YoProgCompiler::Type * progType)
 	case YoProgCompiler::TYPE_FUNC_NATIVE: return getFuncNativeType(progType);
 	case YoProgCompiler::TYPE_FUNC_DATA: return getFuncDataType(progType);
 	case YoProgCompiler::TYPE_STRUCT: return getStructType(progType);
+	case YoProgCompiler::TYPE_ARRAY: return getArrayType(progType);
 	case YoProgCompiler::TYPE_PTR: return getPtrType(progType);
 	default:
 		setError(ERROR_UNREACHABLE, "Error type: %d\n", (int)progType->etype);
@@ -280,6 +281,25 @@ llvm::StructType * YoLLVMCompiler::getStructType(YoProgCompiler::Type * _progTyp
 	return structType;
 }
 
+llvm::ArrayType * YoLLVMCompiler::getArrayType(YoProgCompiler::Type * _progType)
+{
+	YO_ASSERT(_progType->etype == YoProgCompiler::TYPE_ARRAY);
+	YoProgCompiler::ArrayType * progType = dynamic_cast<YoProgCompiler::ArrayType*>(_progType);
+	YO_ASSERT(progType);
+	if (progType->ext.index >= 0) {
+		ArrayType * arrayType = dyn_cast<ArrayType>(types[progType->ext.index]);
+		YO_ASSERT(arrayType);
+		return arrayType;
+	}
+	Type * elementType = getType(progType->subType);
+	YO_ASSERT(elementType);
+	ArrayType * arrayType = ArrayType::get(elementType, progType->size);
+	YO_ASSERT(arrayType);
+	progType->ext.index = types.size();
+	types.push_back(arrayType);
+	return arrayType;
+}
+
 llvm::Instruction::CastOps YoLLVMCompiler::getCastOp(YoProgCompiler::EOperation eop)
 {
 	switch (eop) {
@@ -327,9 +347,8 @@ llvm::AllocaInst * YoLLVMCompiler::allocaVar(FuncParams * func, YoProgCompiler::
 llvm::Value * YoLLVMCompiler::compileOp(FuncParams * func, YoProgCompiler::Scope * progScope, YoProgCompiler::Operation * progOp)
 {
 	int i;
-	Value * value, *left, *right, *ptr;
-	// bool HasNUW = false, bool HasNSW = false;
-	// Instruction::BinaryOps binOp;
+	Value * value, *left, *right, *ptr, * ptr2;
+	YO_U64 size;
 
 	switch (progOp->eop) {
 	case YoProgCompiler::OP_CONST_NULL:
@@ -392,27 +411,54 @@ llvm::Value * YoLLVMCompiler::compileOp(FuncParams * func, YoProgCompiler::Scope
 		}
 		return func->builder->CreateStructGEP(ptr, progOp->structElementIndex);
 
-	case YoProgCompiler::OP_LOAD_BY_PTR:
-		YO_ASSERT(progOp->ops.size() == 1);
-		value = compileOp(func, progScope, progOp->ops[0]);
-		if (!value) {
+	case YoProgCompiler::OP_ELEMENT_PTR: {
+		YO_ASSERT(progOp->ops.size() == 2);
+		ptr = compileOp(func, progScope, progOp->ops[0]);
+		value = compileOp(func, progScope, progOp->ops[1]);
+		if (!ptr || !value) {
 			YO_ASSERT(isError());
 			return NULL;
 		}
-		return func->builder->CreateLoad(value);
-
+		Value * zero = ConstantInt::get(Type::getInt32Ty(*context), 0);
+		Value * args[] = { zero, value };
+		return func->builder->CreateInBoundsGEP(ptr, args);
+	}
 	case YoProgCompiler::OP_FUNC:
 		YO_ASSERT(progOp->ops.size() == 0);
 		return funcs[progOp->func.func->ext.index];
 
-	case YoProgCompiler::OP_STORE:
-		YO_ASSERT(progOp->ops.size() == 2);
+	case YoProgCompiler::OP_LOAD:
+		YO_ASSERT(progOp->ops.size() == 1);
 		ptr = compileOp(func, progScope, progOp->ops[0]);
-		value = compileOp(func, progScope, progOp->ops[1]);
-		if (!value || !ptr) {
+		if (!ptr) {
 			YO_ASSERT(isError());
 			return NULL;
 		}
+		return func->builder->CreateLoad(ptr);
+
+	case YoProgCompiler::OP_STORE_VALUE:
+	case YoProgCompiler::OP_STORE_PTR:
+		YO_ASSERT(progOp->ops.size() == 2);
+		ptr = compileOp(func, progScope, progOp->ops[1]);	// dst
+		if (progOp->eop == YoProgCompiler::OP_STORE_VALUE || progCompiler->isValueOp(progOp->ops[0])){ // src
+			value = compileOp(func, progScope, progOp->ops[0]);	// src
+			if (!value || !ptr) {
+				YO_ASSERT(isError());
+				return NULL;
+			}
+			return func->builder->CreateStore(value, ptr);
+		}
+		// store from ptr
+		ptr2 = compileOp(func, progScope, progOp->ops[0]);	// ptr src
+		if (!ptr2 || !ptr) {
+			YO_ASSERT(isError());
+			return NULL;
+		}
+		size = func->module->llvmExecutionEngine->getDataLayout()->getTypeStoreSize(ptr->getType()->getContainedType(0));
+		if (size > 32) {
+			return func->builder->CreateMemCpy(ptr, ptr2, size, 1);
+		}
+		value = func->builder->CreateLoad(ptr2);
 		return func->builder->CreateStore(value, ptr);
 
 	case YoProgCompiler::OP_CAST_TRUNC:
@@ -523,6 +569,12 @@ llvm::Function * YoLLVMCompiler::compileFunc(ModuleParams * module, YoProgCompil
 	progFunc->ext.index = funcs.size();
 	funcs.push_back(func);
 
+	int i = 0;
+	Function::arg_iterator ait = func->arg_begin();
+	for (; i < (int)progFunc->funcNativeType->argNames.size(); ++ait, ++i) {
+		ait->setName(progFunc->funcNativeType->argNames[i]);
+	}
+
 	// Create a new basic block to start insertion into.
 	BasicBlock * bb = BasicBlock::Create(*context, "entry", func);
 	
@@ -537,7 +589,6 @@ llvm::Function * YoLLVMCompiler::compileFunc(ModuleParams * module, YoProgCompil
 	funcParams.stackValues = &stackValues;
 	funcParams.llvmFunc = func;
 
-	int i;
 	for (i = 0; i < (int)progFunc->stackValues.size(); i++) {
 		YoProgCompiler::StackValue * stackValue = progFunc->stackValues[i];
 		AllocaInst * allocaInst = allocaVar(&funcParams, progFunc, stackValue);

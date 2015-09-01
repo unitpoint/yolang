@@ -2,6 +2,7 @@
 #define __YOPARSER_H__
 
 #include "yodef.h"
+#include <vector>
 
 #define YYDEBUG 1
 // #define YYERROR_VERBOSE
@@ -57,6 +58,7 @@ enum EYoParserNodeType {
 	YO_NODE_DECL_TYPE,
 	YO_NODE_CONTRACT,
 	YO_NODE_CONTRACT_FUNC,
+	// YO_NODE_STRUCT,
 	YO_NODE_CLASS,
 	YO_NODE_CATCH_ELEM,
 	YO_NODE_STMT_CATCH,
@@ -101,6 +103,12 @@ class YoParser
 {
 public:
 
+	enum Error
+	{
+		ERROR_NOTHING,
+		ERROR_SYNTAX,
+	};
+
 	struct LexState
 	{
 		int state;
@@ -127,6 +135,8 @@ public:
 	const char * lineStart;
 	int line;
 
+	std::vector<const char*> lines;
+
 	int braceCount;
 	int state;
 	// int condition;
@@ -137,16 +147,29 @@ public:
 	int textLen;
 	const char * marker;
 
-	int listSize;
-	YoParserNode * list;
+	std::vector<YoParserNode*> nodes;
+	// int listSize;
+	// YoParserNode * list;
 	YoParserNode * module;
+
+	Error error;
+	std::string errorMsg;
+	YoParserLocation errorLoc;
+	const char * errorCursor;
+	const char * errorLineStart;
+	int errorLine;
 
 	YoParser(const char * input);
 	YoParser(const char * input, int len);
 	~YoParser();
+
+	bool isError() const;
+	void dumpError();
 	
 	int run();
 	void dump();
+
+	void setLine(const char*, int line);
 
 	void pushState(int newState, const char * text);
 	void popState();
@@ -165,7 +188,7 @@ private:
 
 struct YoParserNode
 {
-	YoParserNode * parserNext;
+	// YoParserNode * parserNext;
 
 	EYoParserNodeType type;
 	YoParserToken token;

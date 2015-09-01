@@ -24,10 +24,12 @@ public:
 		ERROR_TYPE,
 		ERROR_OP,
 		ERROR_CONVERT_TO_TYPE,
+		ERROR_TYPE_UNKNOWN,
 	};
 
 	enum EType
 	{
+		TYPE_UNKNOWN_YET,
 		TYPE_VOID,
 		TYPE_BOOL,
 		TYPE_INT8,
@@ -46,6 +48,7 @@ public:
 		TYPE_FUNC_DATA,
 		TYPE_PTR,
 		TYPE_MUT,
+		TYPE_ARRAY,
 		// ===========
 		// TYPE_BEGIN_STD = TYPE_VOID,
 		// TYPE_END_STD = TYPE_FLOAT64
@@ -69,6 +72,7 @@ public:
 		virtual ~Type();
 
 		bool isFloat() const;
+		bool isNumber() const;
 	};
 
 	class SubType : public Type
@@ -79,6 +83,16 @@ public:
 		
 		SubType(const std::string& name, EType, Type*, YoParserNode*);
 		~SubType();
+	};
+
+	class ArrayType : public SubType
+	{
+	public:
+
+		unsigned size;
+
+		ArrayType(const std::string& name, unsigned size, Type*, YoParserNode*);
+		~ArrayType();
 	};
 
 	class StructType : public Type
@@ -250,11 +264,13 @@ public:
 		
 		OP_STACKVALUE_PTR,
 		OP_STRUCTELEMENT_PTR,
+		OP_ELEMENT_PTR,
 		OP_FUNC,
 
-		OP_LOAD_BY_PTR,
+		OP_LOAD,
 		// OP_LOAD_BY_FUNC,
-		OP_STORE,
+		OP_STORE_VALUE,
+		OP_STORE_PTR,
 
 		// OP_READ_LOCAL,
 		// OP_WRITE_LOCAL,
@@ -347,6 +363,7 @@ public:
 	bool run();
 
 	bool findName(NameInfo& out, Scope*, const std::string&);
+	bool isValueOp(Operation * op);
 
 	static std::string getTokenStr(YoParserNode*);
 
@@ -361,14 +378,15 @@ protected:
 	struct CastOp
 	{
 		EType extType;
-		EOperation op;
+		EOperation eop;
 		ECastType castType;
 
-		CastOp() : op(OP_NOP), castType(CAST_BY_HAND) {}
-		CastOp(EType _extType, EOperation _op, ECastType _castType = CAST_BY_HAND) : extType(_extType), op(_op), castType(_castType) {}
+		CastOp() : eop(OP_NOP), castType(CAST_BY_HAND) {}
+		CastOp(EType _extType, EOperation _eop, ECastType _castType = CAST_BY_HAND) : extType(_extType), eop(_eop), castType(_castType) {}
 	};
 
-	std::map<int, CastOp> convertOps;
+	std::map<int, Type*> binOpNumCastTypes;
+	std::map<int, CastOp> castOps;
 
 	std::vector<Operation*> ops;
 
@@ -379,12 +397,15 @@ protected:
 	Operation * newStructElementPtrOp(Operation * ptrOp, int index, YoParserNode*);
 
 	int getConvertKey(EType from, EType to);
-	void initConvertOps();
-
+	bool getIntBits(Type * type, int& bits, bool& isSigned);
+	Type * getBinOpNumCast(Type * a, Type * b);
+	CastOp getCastOp(Type * from, Type * to);
+	
 	void collectNodesInReversList(std::vector<YoParserNode*>& out, YoParserNode*);
 
 	Type * newType(const std::string& name, EType, YoParserNode*);
 	SubType * newSubType(const std::string& name, EType, Type*, YoParserNode*);
+	ArrayType * newArrayType(const std::string& name, unsigned size, Type*, YoParserNode*);
 	StructType * newStructType(const std::string& name, YoParserNode*);
 	FuncDataType * newFuncDataType(const std::string& name, YoParserNode*);
 	FuncNativeType * newFuncNativeType(const std::string& name, YoParserNode*);
@@ -395,12 +416,17 @@ protected:
 	Type * getFloatType(int bits);
 	Type * getMutType(Type*, YoParserNode* = NULL);
 	Type * getPtrType(Type*, YoParserNode* = NULL);
-	Type * getIndirectType(Type * ptrType, YoParserNode* = NULL);
+	Type * getArrayType(unsigned size, Type*, YoParserNode* = NULL);
 	Type * getParserStdType(int stdType);
 	Type * getParserType(YoParserNode*);
 	FuncNativeType * getFuncNativeType(YoParserNode*);
 	FuncDataType * getFuncDataType(FuncNativeType*);
 	StructType * getStructType(const std::vector<Type*>& elements, YoParserNode*);
+
+	Type * getPtrSubType(Type * ptrType, YoParserNode* = NULL);
+	Type * getValueType(Operation * op);
+
+	bool matchTypeTemplate(Scope*, Type *& src, Type * dst);
 
 	StackValue * allocTempValue(Scope*, Type * type, const std::string& name, YoParserNode*);
 
@@ -420,8 +446,9 @@ protected:
 	Operation * compileCall(Scope*, YoParserNode*);
 	Operation * compileAssign(Scope*, YoParserNode*);
 	Operation * compileBinOp(Scope*, YoParserNode*);
+	Operation * compileIndexOp(Scope*, YoParserNode*);
 	Operation * compileOp(Scope*, YoParserNode*);
-	Operation * compileValueOp(Scope*, YoParserNode*);
+	Operation * compileValue(Scope*, YoParserNode*);
 
 	enum EConvertType
 	{
@@ -429,8 +456,9 @@ protected:
 		CONVERT_BY_HAND
 	};
 
-	Operation * convertOpToType(Scope*, Operation*, Type*, EConvertType = CONVERT_AUTO);
-	Operation * convertOpToValue(Scope*, Operation*);
+	Operation * convertPtrToType(Scope*, Operation*, Type*);
+	Operation * convertValueToType(Scope*, Operation*, Type*, EConvertType = CONVERT_AUTO);
+	Operation * getValue(Scope*, Operation*);
 };
 
 #endif // __YOPROGCOMPILER_H__

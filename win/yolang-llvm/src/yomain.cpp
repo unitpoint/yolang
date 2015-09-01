@@ -38,6 +38,10 @@ void main()
 	for(;;){
 		YoParser parser(buf, size);
 		int i = parser.run();
+		if (parser.isError()) {
+			parser.dumpError();
+			break;
+		}
 		parser.dump();
 
 		YoProgCompiler progCompiler(&parser);
@@ -53,7 +57,7 @@ void main()
 		printf("\n======================\n\n");
 
 		YoLLVMCompiler llvmCompiler(&progCompiler);
-		if (llvmCompiler.run()) {
+		if (llvmCompiler.run(YoLLVMCompiler::BUILD_DEBUG)) {
 			YO_INT32 (*func)(void*) = (YO_INT32(*)(void*))(intptr_t)llvmCompiler.mainFunc;
 			YO_INT32 r = func(NULL);
 			printf("\nResult: %d\n", r);

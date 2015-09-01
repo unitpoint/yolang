@@ -19,6 +19,12 @@ public:
 		ERROR_IN_PROGCOMPILER,
 	};
 
+	enum EBuildType
+	{
+		BUILD_DEBUG,
+		BUILD_RELEASE,
+	};
+
 	YoProgCompiler * progCompiler;
 	void * mainFunc;
 
@@ -34,7 +40,7 @@ public:
 	void setError(Error, const std::string& msg);
 	bool isError() const;
 
-	bool run();
+	bool run(EBuildType);
 
 protected:
 
@@ -65,6 +71,7 @@ protected:
 
 	llvm::Type * getType(YoProgCompiler::Type*);
 	llvm::StructType * getStructType(YoProgCompiler::Type*);
+	llvm::ArrayType * getArrayType(YoProgCompiler::Type*);
 	llvm::FunctionType * getFuncNativeType(YoProgCompiler::Type*);
 	llvm::StructType * getFuncDataType(YoProgCompiler::Type*);
 	llvm::PointerType * getPtrType(YoProgCompiler::Type*);

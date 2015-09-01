@@ -2,15 +2,31 @@ module HelloWorld
 
 
 func main() int32 {
-	let i int32
+
+	type Test class {
+		a, b int
+	}
+
+	let i ?
 	i = 10i8 + 8u16
 	
 	// let k
 	let j = i + 2.5
 	
-	let f = func() int32 {
+	let f = func() ? {
 		return 3
 	}
+	
+	func getArr() [4]int32 {
+		let arr [4]int32
+		arr[1] = 1000
+		return arr
+	}
+	
+	let arr [10][4]int32
+	arr[5] = getArr()
+	
+	let arr2 = arr
 	
 	/*
 	let j unsafe * mut int = unsafe & i
@@ -18,5 +34,5 @@ func main() int32 {
 	v = 5
 	&v = 8
 	*/
-	return (j + f()) as int32
+	return (arr2[5][1] + j + f()) as int32
 }
