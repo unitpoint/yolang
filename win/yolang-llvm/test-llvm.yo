@@ -6,12 +6,15 @@ func main() int32 {
 	type Test class {
 		a, b int
 	}
+	
+	let t Test
+	t.b = 100
 
 	let i ?
 	i = 10i8 + 8u16
 	
 	// let k
-	let j = i + 2.5
+	let j = i + 2.5 + t.b
 	
 	let f = func() ? {
 		return 3

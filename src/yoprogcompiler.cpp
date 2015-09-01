@@ -72,8 +72,8 @@ YoProgCompiler::ArrayType::~ArrayType()
 
 // ==============================================================
 
-YoProgCompiler::StructType::StructType(const std::string& p_name, YoParserNode * p_node):
-	Type(p_name, TYPE_STRUCT, p_node)
+YoProgCompiler::StructType::StructType(const std::string& p_name, EType p_type, YoParserNode * p_node) :
+	Type(p_name, p_type, p_node)
 {
 	isPacked = false;
 }
@@ -97,7 +97,7 @@ YoProgCompiler::FuncNativeType::~FuncNativeType()
 // ==============================================================
 
 YoProgCompiler::FuncDataType::FuncDataType(const std::string& p_name, YoParserNode * p_node) :
-	StructType(p_name, p_node)
+	StructType(p_name, TYPE_STRUCT, p_node)
 {
 	etype = TYPE_FUNC_DATA;
 	funcNativeType = NULL;
@@ -316,6 +316,21 @@ void YoProgCompiler::collectNodesInReversList(std::vector<YoParserNode*>& out, Y
 	}
 }
 
+void YoProgCompiler::collectDotNameNodesInReversList(std::vector<YoParserNode*>& out, YoParserNode * node)
+{
+	YO_ASSERT(node->type == YO_NODE_DOTNAME);
+	int count = 0;
+	for (YoParserNode * cur = node; cur; cur = cur->data.dotName.node){
+		count++;
+	}
+	out.clear();
+	out.reserve(count);
+	while (node) {
+		out.push_back(node);
+		node = node->data.dotName.node;
+	}
+}
+
 std::string YoProgCompiler::getTokenStr(YoParserNode * node)
 {
 	return std::string(node->token.str, node->token.len);
@@ -369,9 +384,9 @@ YoProgCompiler::ArrayType * YoProgCompiler::newArrayType(const std::string& name
 	return type;
 }
 
-YoProgCompiler::StructType * YoProgCompiler::newStructType(const std::string& name, YoParserNode * node)
+YoProgCompiler::StructType * YoProgCompiler::newStructType(const std::string& name, EType et, YoParserNode * node)
 {
-	StructType * type = new StructType(name, node);
+	StructType * type = new StructType(name, et, node);
 	types[name] = type;
 	return type;
 }
@@ -454,8 +469,8 @@ YoProgCompiler::StructType * YoProgCompiler::getStructType(const std::vector<Typ
 	std::string name = buf.str();
 	std::map<std::string, Type*>::iterator it = types.find(name);
 	if (it == types.end()) {
-		StructType * type = newStructType(name, node);
-		type->elements = elements;
+		StructType * type = newStructType(name, TYPE_STRUCT, node);
+		type->types = elements;
 		return type;
 	}
 	YO_ASSERT(it->second->name == name && it->second->etype == TYPE_STRUCT && dynamic_cast<StructType*>(it->second));
@@ -475,15 +490,15 @@ YoProgCompiler::FuncDataType * YoProgCompiler::getFuncDataType(FuncNativeType * 
 	if (it == types.end()) {
 		FuncDataType * type = newFuncDataType(name, funcNativeType->parserNode);
 		type->funcNativeType = funcNativeType;
-		type->elements.push_back(funcNativePtr);
-		type->elements.push_back(closureStructPtr);
+		type->types.push_back(funcNativePtr);
+		type->types.push_back(closureStructPtr);
 		return type;
 	}
 	YO_ASSERT(it->second->name == name && it->second->etype == TYPE_FUNC_DATA && dynamic_cast<FuncDataType*>(it->second));
 	return dynamic_cast<FuncDataType*>(it->second);
 }
 
-YoProgCompiler::FuncNativeType * YoProgCompiler::getFuncNativeType(YoParserNode * node)
+YoProgCompiler::FuncNativeType * YoProgCompiler::getFuncNativeType(Scope * scope, YoParserNode * node)
 {
 	YO_ASSERT(node && node->type == YO_NODE_DECL_FUNC);
 	std::vector<Type*> argTypes;
@@ -511,8 +526,11 @@ YoProgCompiler::FuncNativeType * YoProgCompiler::getFuncNativeType(YoParserNode 
 		std::vector<YoParserNode*> nameArgs;
 		collectNodesInReversList(nameArgs, argNode->data.declVar.name);
 
-		Type * argType = getParserType(argNode->data.declVar.type);
-		YO_ASSERT(argType);
+		Type * argType = getParserType(scope, argNode->data.declVar.type);
+		if (!argType) {
+			YO_ASSERT(isError());
+			return NULL;
+		}
 		for (size_t i = 0; i < nameArgs.size(); i++) {
 			// if (argTypes.size() > 0) {
 				buf << ",";
@@ -525,7 +543,7 @@ YoProgCompiler::FuncNativeType * YoProgCompiler::getFuncNativeType(YoParserNode 
 		}
 	}
 	buf << ")";
-	Type * resType = node->data.func.type ? getParserType(node->data.func.type) : getType(TYPE_VOID);
+	Type * resType = node->data.func.type ? getParserType(scope, node->data.func.type) : getType(TYPE_VOID);
 	buf << resType->name;
 	std::string name = buf.str();
 	std::map<std::string, Type*>::iterator it = types.find(name);
@@ -595,22 +613,101 @@ YoProgCompiler::Type * YoProgCompiler::getArrayType(unsigned size, Type * type, 
 	return it->second;
 }
 
-YoProgCompiler::Type * YoProgCompiler::getParserType(YoParserNode * node)
+YoProgCompiler::Type * YoProgCompiler::getClassType(Scope * scope, YoParserNode * node)
+{
+	YO_ASSERT(node && node->type == YO_NODE_TYPE_CLASS);
+	if (node->data.typeClass.gen) {
+		setError(ERROR_UNREACHABLE, node, "Class templates are not supported yet");
+		return NULL;
+	}
+	if (node->data.typeClass.extends) {
+		setError(ERROR_UNREACHABLE, node, "Class extends are not supported yet");
+		return NULL;
+	}
+
+	std::vector<Type*> fieldTypes;
+	std::vector<std::string> fieldNames;
+	std::ostringstream buf;
+	buf << "class{";
+
+	std::vector<YoParserNode*> fieldNodes;
+	collectNodesInReversList(fieldNodes, node->data.typeClass.body);
+
+	std::vector<YoParserNode*>::reverse_iterator fit = fieldNodes.rbegin();
+	for (; fit != fieldNodes.rend(); ++fit) {
+		YoParserNode * fieldNode = *fit;
+		YO_ASSERT(fieldNode->type == YO_NODE_DECL_ARG);
+
+		std::vector<YoParserNode*> fieldNameNodes;
+		collectNodesInReversList(fieldNameNodes, fieldNode->data.declVar.name);
+
+		Type * fieldType = getParserType(scope, fieldNode->data.declVar.type);
+		if (!fieldType) {
+			YO_ASSERT(isError());
+			return NULL;
+		}
+		for (int i = fieldNameNodes.size()-1; i >= 0; i--) {
+			if (fieldTypes.size() > 0) {
+				buf << ",";
+			}
+			buf << fieldType->name;
+			fieldTypes.push_back(fieldType);
+
+			YO_ASSERT(fieldNameNodes[i]->type == YO_NODE_NAME);
+			fieldNames.push_back(getTokenStr(fieldNameNodes[i]));
+		}
+	}
+	buf << "}";
+	std::string name = buf.str();
+	std::map<std::string, Type*>::iterator it = types.find(name);
+	if (it == types.end()) {
+		StructType * structType = newStructType(name, TYPE_CLASS, node);
+		structType->types = fieldTypes;
+		structType->names = fieldNames;
+		return structType;
+	}
+	YO_ASSERT(dynamic_cast<StructType*>(it->second));
+	YO_ASSERT(it->second->name == name && it->second->etype == TYPE_CLASS && ((StructType*)it->second)->types == fieldTypes);
+	return it->second;
+}
+
+YoProgCompiler::Type * YoProgCompiler::getScopeType(Scope * scope, YoParserNode * node)
+{
+	YO_ASSERT(node && node->type == YO_NODE_TYPE_NAME);
+	std::string name = getTokenStr(node);
+	while (scope) {
+		std::map<std::string, Type*>::iterator it = scope->types.find(name);
+		if (it != scope->types.end()) {
+			return it->second;
+		}
+		scope = scope->parent;
+	}
+	setError(ERROR_TYPE, node, "Type %s is not found", name.c_str());
+	return NULL;
+}
+
+YoProgCompiler::Type * YoProgCompiler::getParserType(Scope * scope, YoParserNode * node)
 {
 	YO_ASSERT(node);
 	unsigned arrSize;
 	switch (node->type) {
 	case YO_NODE_DECL_FUNC: 
-		return getFuncDataType(getFuncNativeType(node));
+		return getFuncDataType(getFuncNativeType(scope, node));
 	
+	case YO_NODE_TYPE_CLASS:
+		return getClassType(scope, node);
+
 	case YO_NODE_TYPE_MUTABLE:
-		return getMutType(getParserType(node->data.typeMutable.type), node);
+		return getMutType(getParserType(scope, node->data.typeMutable.type), node);
 
 	case YO_NODE_TYPE_PTR:
-		return getPtrType(getParserType(node->data.typePtr.type), node);
+		return getPtrType(getParserType(scope, node->data.typePtr.type), node);
 
 	case YO_NODE_TYPE_STD_NAME:
 		return getParserStdType(node->data.typeStdName);
+
+	case YO_NODE_TYPE_NAME:
+		return getScopeType(scope, node);
 
 	case YO_NODE_TYPE_ARR:
 		switch (node->data.typeArr.size->type) {
@@ -626,7 +723,7 @@ YoProgCompiler::Type * YoProgCompiler::getParserType(YoParserNode * node)
 			setError(ERROR_UNREACHABLE, node->data.typeArr.size, "Const size required for array");
 			return NULL;
 		}
-		return getArrayType(arrSize, getParserType(node->data.typeArr.type), node);
+		return getArrayType(arrSize, getParserType(scope, node->data.typeArr.type), node);
 	}
 	setError(ERROR_UNREACHABLE, node, "Error parser type: %d", (int)node->type);
 	return NULL;
@@ -679,7 +776,7 @@ YoProgCompiler::Function * YoProgCompiler::compileFunc(Scope * scope, YoParserNo
 		name = buf;
 	}
 
-	FuncNativeType * funcNativeType = getFuncNativeType(node);
+	FuncNativeType * funcNativeType = getFuncNativeType(scope, node);
 	Function * func = new Function(scope, funcNativeType, name, node);
 	getModule(scope)->funcs.push_back(func);
 	
@@ -722,12 +819,12 @@ bool YoProgCompiler::compileFuncBody(Function * func, YoParserNode * node)
 				}
 				break;
 
-			/* case YO_NODE_DECL_FUNC:
-				if (!compileSubFunc(func, stmt)) {
+			case YO_NODE_DECL_TYPE:
+				if (!compileDeclType(func, stmt)) {
 					return false;
 				}
-				break; */
-
+				break;
+			
 			case YO_NODE_ASSIGN:
 				if (!compileStmtAssign(func, stmt)) {
 					return false;
@@ -755,6 +852,28 @@ bool YoProgCompiler::compileFuncBody(Function * func, YoParserNode * node)
 	return true;
 }
 
+YoProgCompiler::Type * YoProgCompiler::compileDeclType(Scope * scope, YoParserNode * node)
+{
+	YO_ASSERT(node && node->type == YO_NODE_DECL_TYPE);
+	YO_ASSERT(node->data.declType.name && node->data.declType.name->type == YO_NODE_NAME);
+	YO_ASSERT(node->data.declType.type && node->data.declType.type->isType());
+	
+	std::string name = getTokenStr(node->data.declType.name);
+	std::map<std::string, Type*>::iterator it = scope->types.find(name);
+	if (it != scope->types.end()) {
+		setError(ERROR_DUPLICATE_TYPE, node, "Type %s is already exist", name.c_str());
+		return NULL;
+	}
+
+	Type * type = getParserType(scope, node->data.declType.type);
+	if (!type) {
+		YO_ASSERT(isError());
+		return NULL;
+	}
+	scope->types[name] = type;
+	return type;
+}
+
 YoProgCompiler::StackValue * YoProgCompiler::compileDeclVar(Scope * scope, YoParserNode * node)
 {
 	YO_ASSERT(node && node->type == YO_NODE_DECL_VAR);
@@ -762,8 +881,11 @@ YoProgCompiler::StackValue * YoProgCompiler::compileDeclVar(Scope * scope, YoPar
 	Type * type = NULL;
 	if (node->data.declVar.type) {
 		YO_ASSERT(node->data.declVar.type && node->data.declVar.type->isType());
-		type = getParserType(node->data.declVar.type);
-		YO_ASSERT(type);
+		type = getParserType(scope, node->data.declVar.type);
+		if (!type) {
+			YO_ASSERT(isError());
+			return NULL;
+		}
 	}
 	else{
 		type = getType(TYPE_UNKNOWN_YET);
@@ -889,11 +1011,14 @@ YoProgCompiler::Operation * YoProgCompiler::compileOp(Scope * scope, YoParserNod
 	case YO_NODE_DECL_FUNC:
 		return compileSubFunc(scope, node);
 
+	case YO_NODE_DOTNAME:
+		return compileDotName(scope, node);
+
 	case YO_NODE_CALL:
 		return compileCall(scope, node);
 
 	case YO_NODE_CAST:
-		return convertValueToType(scope, compileOp(scope, node->data.cast.expr), getParserType(node->data.cast.type), CONVERT_BY_HAND);
+		return convertValueToType(scope, compileOp(scope, node->data.cast.expr), getParserType(scope, node->data.cast.type), CONVERT_BY_HAND);
 	}
 	setError(ERROR_UNREACHABLE, node, "Error parser node: %d", (int)node->type);
 	return NULL;
@@ -934,6 +1059,73 @@ YoProgCompiler::Module * YoProgCompiler::getModule(Scope * scope)
 	Module * module = dynamic_cast<Module*>(scope);
 	YO_ASSERT(module);
 	return module;
+}
+
+YoProgCompiler::Operation * YoProgCompiler::compileDotOp(Scope * scope, Operation * left, YoParserNode * right, YoParserNode * node)
+{
+	if (right->type != YO_NODE_NAME && right->type != YO_NODE_DOTNAME) {
+		setError(ERROR_UNREACHABLE, right, "Field name required: %d", (int)right->type);
+		return NULL;
+	}
+	Type * leftValueType;
+	if (isValueOp(left)) {
+		leftValueType = left->type;
+		if (leftValueType->etype != TYPE_STRUCT && leftValueType->etype != TYPE_CLASS) {
+			setError(ERROR_TYPE, node, "Struct or class type required: %s", leftValueType->name.c_str());
+			return NULL;
+		}
+		StackValue * val = allocTempValue(scope, leftValueType, "temp", node);
+		Operation * stackValueOp = newStackValuePtrOp(val, node);
+		
+		Operation * storeOp = newOperation(OP_STORE_VALUE, node);
+		storeOp->ops.push_back(left);
+		storeOp->ops.push_back(stackValueOp);
+
+		stackValueOp->ops.push_back(storeOp);
+		left = stackValueOp;
+	}
+	else{
+		leftValueType = getValueType(left);
+		if (leftValueType->etype != TYPE_STRUCT && leftValueType->etype != TYPE_CLASS) {
+			setError(ERROR_TYPE, node, "Struct or class type required: %s", leftValueType->name.c_str());
+			return NULL;
+		}
+	}
+	std::string fieldName = getTokenStr(right);
+	StructType * structType = dynamic_cast<StructType*>(leftValueType);
+	YO_ASSERT(structType);
+	for (int i = 0; i < (int)structType->names.size(); i++) {
+		if (fieldName == structType->names[i]) {
+			return newStructElementPtrOp(left, i, node);
+		}
+	}
+	setError(ERROR_FIELD, node, "Field %s is not found in %s", fieldName.c_str(), structType->name.c_str());
+	return NULL;
+}
+
+YoProgCompiler::Operation * YoProgCompiler::compileDotName(Scope * scope, YoParserNode * node)
+{
+	YO_ASSERT(node && node->type == YO_NODE_DOTNAME);
+
+	std::vector<YoParserNode*> nodes;
+	collectDotNameNodesInReversList(nodes, node);
+
+	Operation * op = NULL;
+	std::vector<YoParserNode*>::reverse_iterator it = nodes.rbegin();
+	for (; it != nodes.rend(); ++it) {
+		YoParserNode * curNode = *it;
+		if (!op) {
+			op = compileOp(scope, curNode);
+		}
+		else{
+			op = compileDotOp(scope, op, curNode, node);
+		}
+		if (!op) {
+			YO_ASSERT(isError());
+			return NULL;
+		}
+	}
+	return op;
 }
 
 YoProgCompiler::Operation * YoProgCompiler::compileCall(Scope * scope, YoParserNode * node)
@@ -1034,19 +1226,19 @@ YoProgCompiler::Operation * YoProgCompiler::newStructElementPtrOp(Operation * pt
 	if (!type) {
 		return NULL;
 	}
-	if ((type->etype != TYPE_STRUCT && type->etype != TYPE_FUNC_DATA) || !dynamic_cast<StructType*>(type)) {
+	if ((type->etype != TYPE_STRUCT && type->etype != TYPE_CLASS && type->etype != TYPE_FUNC_DATA) || !dynamic_cast<StructType*>(type)) {
 		setError(ERROR_UNREACHABLE, node, "Struct pointer required");
 		return NULL;
 	}
 	StructType * structType = (StructType*)type;
-	if ((size_t)index >= structType->elements.size()) {
+	if ((size_t)index >= structType->types.size()) {
 		setError(ERROR_UNREACHABLE, node, "Error element index: %d", index);
 		return NULL;
 	}
 	Operation * elemPtr = newOperation(OP_STRUCTELEMENT_PTR, node);
 	elemPtr->ops.push_back(ptrOp);
 	elemPtr->structElementIndex = index;
-	elemPtr->type = getPtrType(structType->elements[index], node);
+	elemPtr->type = getPtrType(structType->types[index], node);
 	return elemPtr;
 }
 
@@ -1224,6 +1416,9 @@ YoProgCompiler::Operation * YoProgCompiler::compileBinOp(Scope * scope, YoParser
 
 	case T_INDEX:
 		return compileIndexOp(scope, node);
+
+	// case T_DOT:
+	//	return compileDotOp(scope, node->data.binOp.left, node->data.binOp.right, node);
 
 	default:
 		setError(ERROR_OP, node, "Error bin op: %d", (int)node->data.binOp.op);

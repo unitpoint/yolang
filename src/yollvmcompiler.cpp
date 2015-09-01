@@ -186,7 +186,9 @@ llvm::Type * YoLLVMCompiler::getType(YoProgCompiler::Type * progType)
 	case YoProgCompiler::TYPE_FLOAT64: type = Type::getDoubleTy(*context); break;
 	case YoProgCompiler::TYPE_FUNC_NATIVE: return getFuncNativeType(progType);
 	case YoProgCompiler::TYPE_FUNC_DATA: return getFuncDataType(progType);
-	case YoProgCompiler::TYPE_STRUCT: return getStructType(progType);
+	case YoProgCompiler::TYPE_STRUCT: 
+	case YoProgCompiler::TYPE_CLASS:
+		return getStructType(progType);
 	case YoProgCompiler::TYPE_ARRAY: return getArrayType(progType);
 	case YoProgCompiler::TYPE_PTR: return getPtrType(progType);
 	default:
@@ -259,7 +261,8 @@ llvm::StructType * YoLLVMCompiler::getFuncDataType(YoProgCompiler::Type * _progT
 
 llvm::StructType * YoLLVMCompiler::getStructType(YoProgCompiler::Type * _progType)
 {
-	YO_ASSERT(_progType->etype == YoProgCompiler::TYPE_STRUCT || _progType->etype == YoProgCompiler::TYPE_FUNC_DATA);
+	YO_ASSERT(_progType->etype == YoProgCompiler::TYPE_STRUCT || _progType->etype == YoProgCompiler::TYPE_CLASS
+		|| _progType->etype == YoProgCompiler::TYPE_FUNC_DATA);
 	YoProgCompiler::StructType * progType = dynamic_cast<YoProgCompiler::StructType*>(_progType);
 	YO_ASSERT(progType);
 	if (progType->ext.index >= 0) {
@@ -269,8 +272,8 @@ llvm::StructType * YoLLVMCompiler::getStructType(YoProgCompiler::Type * _progTyp
 	}
 
 	std::vector<Type*> elements;
-	for (int i = 0; i < (int)progType->elements.size(); i++) {
-		Type * type = getType(progType->elements[i]);
+	for (int i = 0; i < (int)progType->types.size(); i++) {
+		Type * type = getType(progType->types[i]);
 		YO_ASSERT(type);
 		elements.push_back(type);
 	}

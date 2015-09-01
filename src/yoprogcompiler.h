@@ -25,6 +25,8 @@ public:
 		ERROR_OP,
 		ERROR_CONVERT_TO_TYPE,
 		ERROR_TYPE_UNKNOWN,
+		ERROR_DUPLICATE_TYPE,
+		ERROR_FIELD,
 	};
 
 	enum EType
@@ -44,6 +46,7 @@ public:
 		TYPE_FLOAT64,
 		TYPE_STRING,
 		TYPE_STRUCT,
+		TYPE_CLASS,
 		TYPE_FUNC_NATIVE,
 		TYPE_FUNC_DATA,
 		TYPE_PTR,
@@ -100,9 +103,10 @@ public:
 	public:
 
 		bool isPacked;
-		std::vector<Type*> elements;
+		std::vector<Type*> types;
+		std::vector<std::string> names;
 
-		StructType(const std::string& name, YoParserNode*);
+		StructType(const std::string& name, EType, YoParserNode*);
 		~StructType();
 	};
 
@@ -132,7 +136,7 @@ public:
 	{
 		VALUE_NOTHING,
 		VALUE_STACKVALUE,
-		VALUE_SCOPE,
+		// VALUE_SCOPE,
 	};
 
 	class Value
@@ -188,6 +192,7 @@ public:
 		EScope escope;
 
 		std::vector<StackValue*> stackValues;
+		std::map<std::string, Type*> types;
 
 		Scope(Scope * parent, EScope, const std::string& name, YoParserNode*);
 		virtual ~Scope();
@@ -402,11 +407,12 @@ protected:
 	CastOp getCastOp(Type * from, Type * to);
 	
 	void collectNodesInReversList(std::vector<YoParserNode*>& out, YoParserNode*);
+	void collectDotNameNodesInReversList(std::vector<YoParserNode*>& out, YoParserNode*);
 
 	Type * newType(const std::string& name, EType, YoParserNode*);
 	SubType * newSubType(const std::string& name, EType, Type*, YoParserNode*);
 	ArrayType * newArrayType(const std::string& name, unsigned size, Type*, YoParserNode*);
-	StructType * newStructType(const std::string& name, YoParserNode*);
+	StructType * newStructType(const std::string& name, EType, YoParserNode*);
 	FuncDataType * newFuncDataType(const std::string& name, YoParserNode*);
 	FuncNativeType * newFuncNativeType(const std::string& name, YoParserNode*);
 
@@ -418,8 +424,10 @@ protected:
 	Type * getPtrType(Type*, YoParserNode* = NULL);
 	Type * getArrayType(unsigned size, Type*, YoParserNode* = NULL);
 	Type * getParserStdType(int stdType);
-	Type * getParserType(YoParserNode*);
-	FuncNativeType * getFuncNativeType(YoParserNode*);
+	Type * getParserType(Scope*, YoParserNode*);
+	Type * getClassType(Scope*, YoParserNode*);
+	Type * getScopeType(Scope*, YoParserNode*);
+	FuncNativeType * getFuncNativeType(Scope*, YoParserNode*);
 	FuncDataType * getFuncDataType(FuncNativeType*);
 	StructType * getStructType(const std::vector<Type*>& elements, YoParserNode*);
 
@@ -438,15 +446,18 @@ protected:
 	Function * compileFunc(Scope*, YoParserNode*);
 	bool compileFuncBody(Function*, YoParserNode*);
 	StackValue * compileDeclVar(Scope*, YoParserNode*);
+	Type * compileDeclType(Scope*, YoParserNode*);
 	// bool exprToStmt(Scope*, Expression*);
 	bool compileStmtBinOp(Scope*, YoParserNode*);
 	bool compileStmtAssign(Scope*, YoParserNode*);
 	bool compileStmtReturn(Scope*, YoParserNode*);
 	Operation * compileSubFunc(Scope*, YoParserNode*);
+	Operation * compileDotName(Scope*, YoParserNode*);
 	Operation * compileCall(Scope*, YoParserNode*);
 	Operation * compileAssign(Scope*, YoParserNode*);
 	Operation * compileBinOp(Scope*, YoParserNode*);
 	Operation * compileIndexOp(Scope*, YoParserNode*);
+	Operation * compileDotOp(Scope*, Operation * left, YoParserNode * right, YoParserNode*);
 	Operation * compileOp(Scope*, YoParserNode*);
 	Operation * compileValue(Scope*, YoParserNode*);
 
