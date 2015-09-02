@@ -33,6 +33,7 @@ func main() int32 {
 	} */
 	
 	let mut t = Test{TestBytes{1, 2, 3}, 300, 600}
+	t = Test{b = 700}
 	// t.c.b = 10
 	// t.c.c = t.GetA()
 	// t.b = 500

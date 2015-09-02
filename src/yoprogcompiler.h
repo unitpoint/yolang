@@ -491,7 +491,8 @@ protected:
 	Operation * compileSizeOf(Scope*, YoParserNode*);
 	Operation * compileCall(Scope*, YoParserNode*);
 	Operation * compileAssign(Scope*, YoParserNode*);
-	Operation * compileNewObjExprList(Scope*, YoParserNode*);
+	Operation * compileNewObjExprs(Scope*, YoParserNode*);
+	Operation * compileNewObjProps(Scope*, YoParserNode*);
 	Operation * compileBinOp(Scope*, YoParserNode*);
 	Operation * compileIndexOp(Scope*, YoParserNode*);
 	Operation * compileDotOp(Scope*, Operation * left, YoParserNode * right, YoParserNode*);

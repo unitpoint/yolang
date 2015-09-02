@@ -85,7 +85,7 @@ void yyerror(const char* s);
 %pure_parser
 %locations
 %error-verbose
-%expect 7
+%expect 6
 
 %token T_MODULE T_IMPORT
 %token T_DOTDOTDOT
@@ -614,7 +614,7 @@ prop_assing_list:
 	|	prop_assing_list ',' prop_assing	{ yoParserList(&$$, &$1, &$3, parm, &yyloc); }
 
 prop_assing:
-		dotname T_ASSIGN expr			{ yoParserAssign(&$$, &$1, &$3, T_PROP_ASSIGN, parm, &yyloc); }
+		T_NAME T_ASSIGN expr			{ yoParserAssign(&$$, &$1, &$3, T_PROP_ASSIGN, parm, &yyloc); }
 
 qstr_with_inject_begin_elem:
 		T_QSTRING_INJECT_EXRP expr_base { yoParserBinOp(&$$, &$1, &$2, T_CONCAT, parm, &yyloc); }

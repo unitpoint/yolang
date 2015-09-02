@@ -1126,11 +1126,11 @@ YoProgCompiler::Operation * YoProgCompiler::compileOp(Scope * scope, YoParserNod
 	case YO_NODE_ASSIGN:
 		return compileAssign(scope, node);
 
-	// case YO_NODE_NEW_OBJ_PROPS:
-	//	return NULL;
+	case YO_NODE_NEW_OBJ_PROPS:
+		return compileNewObjProps(scope, node);
 
 	case YO_NODE_NEW_OBJ_EXPS:
-		return compileNewObjExprList(scope, node);
+		return compileNewObjExprs(scope, node);
 
 	case YO_NODE_BIN_OP:
 		return compileBinOp(scope, node);
@@ -1464,7 +1464,7 @@ YoProgCompiler::Operation * YoProgCompiler::compileSubFunc(Scope * scope, YoPars
 	return resultOp;
 }
 
-YoProgCompiler::Operation * YoProgCompiler::compileNewObjExprList(Scope * scope, YoParserNode * node)
+YoProgCompiler::Operation * YoProgCompiler::compileNewObjExprs(Scope * scope, YoParserNode * node)
 {
 	YO_ASSERT(node && node->type == YO_NODE_NEW_OBJ_EXPS);
 
@@ -1491,11 +1491,84 @@ YoProgCompiler::Operation * YoProgCompiler::compileNewObjExprList(Scope * scope,
 	std::vector<YoParserNode*> nodes;
 	collectNodesInReversList(nodes, node->data.obj.values);
 
-	std::vector<YoParserNode*>::reverse_iterator it = nodes.rbegin();
 	int i;
+	std::vector<YoParserNode*>::reverse_iterator it = nodes.rbegin();
 	for (i = 0; it != nodes.rend(); ++it, ++i) {
 		Type * dstType = structType->types[i];
 		Operation * expr = compileOp(scope, *it);
+		if (!expr) {
+			YO_ASSERT(isError());
+			return NULL;
+		}
+		Operation * tempOp = newStackValuePtrOp(temp, node);
+		Operation * dst = newStructElementPtrOp(tempOp, i, node);
+		if (!dst) {
+			YO_ASSERT(isError());
+			return NULL;
+		}
+		if (getValueType(expr) != dstType){
+			expr = getValue(scope, expr);
+			expr = convertValueToType(scope, expr, dstType);
+			if (!expr) {
+				return NULL;
+			}
+			op = newOperation(OP_STORE_VALUE, node);
+			op->ops.push_back(expr);
+			op->ops.push_back(dst);
+		}
+		else{
+			op = newOperation(isValueOp(expr) ? OP_STORE_VALUE : OP_STORE_PTR, node);
+			op->ops.push_back(expr);
+			op->ops.push_back(dst);
+		}
+		resultOp->ops.push_back(op);
+	}
+	return resultOp;
+}
+
+YoProgCompiler::Operation * YoProgCompiler::compileNewObjProps(Scope * scope, YoParserNode * node)
+{
+	YO_ASSERT(node && node->type == YO_NODE_NEW_OBJ_PROPS);
+
+	Type * type = getScopeType(scope, node->data.obj.name);
+	if (!type) {
+		YO_ASSERT(isError());
+		return NULL;
+	}
+	if (type->etype != TYPE_STRUCT && type->etype != TYPE_CLASS) {
+		setError(ERROR_TYPE, node, "Struct or class type required: %s", type->name.c_str());
+		return NULL;
+	}
+	StructType * structType = dynamic_cast<StructType*>(type);
+	YO_ASSERT(structType);
+
+	StackValue * temp = allocTempValue(scope, type, "temp", node);
+	Operation * resultOp = newStackValuePtrOp(temp, node);
+
+	Operation * op = newOperation(OP_STACK_VALUE_MEMZERO, node);
+	op->stackValue = temp;
+	resultOp->ops.push_back(op);
+
+	// std::map<std::string, bool> initialized;
+	std::vector<YoParserNode*> nodes;
+	collectNodesInReversList(nodes, node->data.obj.values);
+
+	std::vector<YoParserNode*>::reverse_iterator it = nodes.rbegin();
+	for (; it != nodes.rend(); ++it) {
+		YoParserNode * propNode = *it;
+		YO_ASSERT(propNode->type == YO_NODE_ASSIGN && propNode->data.assign.op == T_PROP_ASSIGN);
+
+		YoParserNode * propNameNode = propNode->data.assign.left;
+		YO_ASSERT(propNameNode->type == YO_NODE_NAME);
+		std::string fieldName = getTokenStr(propNameNode);
+		std::map<std::string, int>::iterator nit = structType->nameIndices.find(fieldName);
+		if (nit == structType->nameIndices.end()) {
+			setError(ERROR_FIELD_NOT_FOUND, propNameNode, "Member %s is not found in %s", fieldName.c_str(), structType->name.c_str());
+			return NULL;
+		}
+		int i = nit->second;
+		Type * dstType = structType->types[i];
+		Operation * expr = compileOp(scope, propNode->data.assign.right);
 		if (!expr) {
 			YO_ASSERT(isError());
 			return NULL;
@@ -1548,7 +1621,7 @@ YoProgCompiler::Operation * YoProgCompiler::compileAssign(Scope * scope, YoParse
 			left->stackValue->isUsed = false;
 		}
 		else if (!left->stackValue->isMutable) {
-			setError(ERROR_MUTABLE_REQUIRED, node, "Variable %s is not matable", left->stackValue->name.c_str());
+			setError(ERROR_MUTABLE_REQUIRED, node, "Variable %s is not mutable", left->stackValue->name.c_str());
 			return NULL;
 		}
 		YO_ASSERT(left->type && left->stackValue && left->stackValue->type && right->type);
