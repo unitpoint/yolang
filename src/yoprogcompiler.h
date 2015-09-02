@@ -313,6 +313,7 @@ public:
 		// OP_SUB_FUNC,
 
 		// OP_LIST,
+		OP_STACK_VALUE_MEMZERO,
 	};
 
 	class Operation
@@ -490,6 +491,7 @@ protected:
 	Operation * compileSizeOf(Scope*, YoParserNode*);
 	Operation * compileCall(Scope*, YoParserNode*);
 	Operation * compileAssign(Scope*, YoParserNode*);
+	Operation * compileNewObjExprList(Scope*, YoParserNode*);
 	Operation * compileBinOp(Scope*, YoParserNode*);
 	Operation * compileIndexOp(Scope*, YoParserNode*);
 	Operation * compileDotOp(Scope*, Operation * left, YoParserNode * right, YoParserNode*);

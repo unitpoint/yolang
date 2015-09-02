@@ -475,6 +475,11 @@ llvm::Value * YoLLVMCompiler::compileOp(FuncParams * func, YoProgCompiler::Scope
 		noValue = func->builder->CreateStore(value, dstPtr);
 		return progOp->type ? srcPtr : noValue;
 
+	case YoProgCompiler::OP_STACK_VALUE_MEMZERO:
+		dstPtr = (*func->stackValues)[progOp->stackValue->ext.index];
+		size = func->module->llvmExecutionEngine->getDataLayout()->getTypeStoreSize(dstPtr->getType()->getContainedType(0));
+		return func->builder->CreateMemSet(dstPtr, func->builder->getInt8(0), size, 1);
+
 	case YoProgCompiler::OP_CAST_TRUNC:
 	case YoProgCompiler::OP_CAST_ZERO_EXT:
 	case YoProgCompiler::OP_CAST_SIGN_EXT:

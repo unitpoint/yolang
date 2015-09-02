@@ -1129,6 +1129,9 @@ YoProgCompiler::Operation * YoProgCompiler::compileOp(Scope * scope, YoParserNod
 	// case YO_NODE_NEW_OBJ_PROPS:
 	//	return NULL;
 
+	case YO_NODE_NEW_OBJ_EXPS:
+		return compileNewObjExprList(scope, node);
+
 	case YO_NODE_BIN_OP:
 		return compileBinOp(scope, node);
 
@@ -1458,6 +1461,68 @@ YoProgCompiler::Operation * YoProgCompiler::compileSubFunc(Scope * scope, YoPars
 	// storeOp->type = nullOp->type;
 
 	resultOp->ops.push_back(storeOp);
+	return resultOp;
+}
+
+YoProgCompiler::Operation * YoProgCompiler::compileNewObjExprList(Scope * scope, YoParserNode * node)
+{
+	YO_ASSERT(node && node->type == YO_NODE_NEW_OBJ_EXPS);
+
+	Type * type = getScopeType(scope, node->data.obj.name);
+	if (!type) {
+		YO_ASSERT(isError());
+		return NULL;
+	}
+	if (type->etype != TYPE_STRUCT && type->etype != TYPE_CLASS) {
+		setError(ERROR_TYPE, node, "Struct or class type required: %s", type->name.c_str());
+		return NULL;
+	}
+	StructType * structType = dynamic_cast<StructType*>(type);
+	YO_ASSERT(structType);
+
+	StackValue * temp = allocTempValue(scope, type, "temp", node);
+	Operation * resultOp = newStackValuePtrOp(temp, node);
+
+	Operation * op = newOperation(OP_STACK_VALUE_MEMZERO, node);
+	op->stackValue = temp;
+	resultOp->ops.push_back(op);
+
+	// std::map<std::string, bool> initialized;
+	std::vector<YoParserNode*> nodes;
+	collectNodesInReversList(nodes, node->data.obj.values);
+
+	std::vector<YoParserNode*>::reverse_iterator it = nodes.rbegin();
+	int i;
+	for (i = 0; it != nodes.rend(); ++it, ++i) {
+		Type * dstType = structType->types[i];
+		Operation * expr = compileOp(scope, *it);
+		if (!expr) {
+			YO_ASSERT(isError());
+			return NULL;
+		}
+		Operation * tempOp = newStackValuePtrOp(temp, node);
+		Operation * dst = newStructElementPtrOp(tempOp, i, node);
+		if (!dst) {
+			YO_ASSERT(isError());
+			return NULL;
+		}
+		if (getValueType(expr) != dstType){
+			expr = getValue(scope, expr);
+			expr = convertValueToType(scope, expr, dstType);
+			if (!expr) {
+				return NULL;
+			}
+			op = newOperation(OP_STORE_VALUE, node);
+			op->ops.push_back(expr);
+			op->ops.push_back(dst);
+		}
+		else{
+			op = newOperation(isValueOp(expr) ? OP_STORE_VALUE : OP_STORE_PTR, node);
+			op->ops.push_back(expr);
+			op->ops.push_back(dst);
+		}
+		resultOp->ops.push_back(op);
+	}
 	return resultOp;
 }
 
