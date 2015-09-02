@@ -49,7 +49,8 @@ void main()
 		if (progCompiler.isError()) {
 			printf("\n======================\n%s\n", progCompiler.errorMsg.c_str());
 			if (progCompiler.errorNode) {
-				printf("line: %d, token: %s\n", progCompiler.errorNode->token.line, YoProgCompiler::getTokenStr(progCompiler.errorNode).c_str());
+				parser.dumpErrorLine(progCompiler.errorNode->token);
+				// printf("line: %d, token: %s\n", progCompiler.errorNode->token.line, YoProgCompiler::getTokenStr(progCompiler.errorNode).c_str());
 			}
 			break;
 		}

@@ -189,6 +189,7 @@ CLOSE_BRACKET	= (")"|"}");
 <ST_YOLANG,ST_INJECT>"elseif" { return T_ELSEIF; }
 <ST_YOLANG,ST_INJECT>"catch" { return T_CATCH; }
 <ST_YOLANG,ST_INJECT>"as" { return T_AS; }
+<ST_YOLANG,ST_INJECT>"sizeof" { return T_SIZEOF; }
 
 <ST_YOLANG>"{"	{ return yoLexOpenBrace(parm, parserLoc); }
 <ST_INJECT>"{"	{ return yoLexInjectOpenBrace(parserElem, parm, parserLoc); }

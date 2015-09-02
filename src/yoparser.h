@@ -68,6 +68,7 @@ enum EYoParserNodeType {
 	// YO_NODE_ELSEIF_LIST,
 	YO_NODE_ELSE,
 	YO_NODE_CALL,
+	YO_NODE_SIZEOF,
 
 	// =========================
 	__YO_NODE_DUMMY__
@@ -155,9 +156,10 @@ public:
 	Error error;
 	std::string errorMsg;
 	YoParserLocation errorLoc;
-	const char * errorCursor;
-	const char * errorLineStart;
+	// const char * errorCursor;
+	// const char * errorLineStart;
 	int errorLine;
+	int errorLinePos;
 
 	YoParser(const char * input);
 	YoParser(const char * input, int len);
@@ -165,7 +167,9 @@ public:
 
 	bool isError() const;
 	void dumpError();
-	
+	void dumpErrorLine(int line, int pos);
+	void dumpErrorLine(const YoParserToken& token);
+
 	int run();
 	void dump();
 
@@ -275,6 +279,7 @@ struct YoParserNode
 		} declType;
 
 		struct {
+			bool isMutable;
 			YoParserNode * name;
 			YoParserNode * type;
 		} declVar;
@@ -305,6 +310,10 @@ struct YoParserNode
 			int op;
 			YoParserNode * node;
 		} unaryOp;
+
+		struct {
+			YoParserNode * node;
+		} sizeOf;
 
 		struct {
 			YoParserNode * node;

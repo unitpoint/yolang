@@ -10,12 +10,17 @@ YoProgCompiler::Type::Type(const std::string& p_name, EType p_etype, YoParserNod
 	parserNode = p_node;
 	etype = p_etype;
 	// isMutable = false;
+	isUnknownYet = false;
 	// isGeneric = false;
 	ext.index = -1;
 }
 
 YoProgCompiler::Type::~Type()
 {
+	std::map<std::string, Type*>::iterator it = subTypes.begin();
+	for (; it != subTypes.end(); ++it) {
+		delete it->second;
+	}
 }
 
 bool YoProgCompiler::Type::isFloat() const
@@ -82,6 +87,14 @@ YoProgCompiler::StructType::~StructType()
 {
 }
 
+void YoProgCompiler::StructType::updateNameIndices()
+{
+	nameIndices.clear();
+	for (int i = 0; i < (int)names.size(); i++) {
+		nameIndices[names[i]] = i;
+	}
+}
+
 // ==============================================================
 
 YoProgCompiler::FuncNativeType::FuncNativeType(const std::string& p_name, YoParserNode * p_node) :
@@ -126,6 +139,7 @@ YoProgCompiler::Value::~Value()
 YoProgCompiler::StackValue::StackValue(Type * p_type, const std::string& p_name, YoParserNode * p_node) : Value(VALUE_STACKVALUE, p_name, p_node)
 {
 	type = p_type;
+	isMutable = false;
 	isInitialized = false;
 	isUsed = false;
 	isTemp = false;
@@ -152,6 +166,15 @@ YoProgCompiler::Scope::~Scope()
 	if (escope != SCOPE_BLOCK){
 		for (size_t i = 0; i < stackValues.size(); i++) {
 			delete stackValues[i];
+		}
+	}
+	std::map<std::string, Type*>::iterator it = types.begin();
+	for (; it != types.end(); ++it) {
+		Type * type = it->second;
+		switch (type->etype) {
+		case TYPE_CLASS:
+			delete type;
+			break;
 		}
 	}
 }
@@ -238,8 +261,8 @@ void YoProgCompiler::reset()
 	for (i = 0; i < ops.size(); i++) {
 		delete ops[i];
 	}
-	std::map<std::string, Type*>::iterator it = types.begin();
-	for (; it != types.end(); ++it) {
+	std::map<std::string, Type*>::iterator it = globalTypes.begin();
+	for (; it != globalTypes.end(); ++it) {
 		delete it->second;
 	}
 	resetError();
@@ -363,6 +386,7 @@ YoProgCompiler::Type * YoProgCompiler::getVoidPtrType()
 	return getPtrType(getType(TYPE_VOID));
 }
 
+/*
 YoProgCompiler::Type * YoProgCompiler::newType(const std::string& name, EType etype, YoParserNode * node)
 {
 	Type * type = new Type(name, etype, node);
@@ -404,6 +428,7 @@ YoProgCompiler::FuncNativeType * YoProgCompiler::newFuncNativeType(const std::st
 	types[name] = type;
 	return type;
 }
+*/
 
 YoProgCompiler::Type * YoProgCompiler::getType(EType etype)
 {
@@ -426,9 +451,13 @@ YoProgCompiler::Type * YoProgCompiler::getType(EType etype)
 		setError(ERROR_UNREACHABLE, NULL, "Error type: %d", (int)etype);
 		return NULL;
 	}
-	std::map<std::string, Type*>::iterator it = types.find(name);
-	if (it == types.end()) {
-		return newType(name, etype, NULL);
+	std::map<std::string, Type*>::iterator it = globalTypes.find(name);
+	if (it == globalTypes.end()) {
+		// return newType(name, etype, NULL);
+		Type * type = new Type(name, etype, NULL);
+		globalTypes[name] = type;
+		type->isUnknownYet = etype == TYPE_UNKNOWN_YET;
+		return type;
 	}
 	YO_ASSERT(it->second->name == name && it->second->etype == etype);
 	return it->second;
@@ -467,9 +496,10 @@ YoProgCompiler::StructType * YoProgCompiler::getStructType(const std::vector<Typ
 	}
 	buf << "}";
 	std::string name = buf.str();
-	std::map<std::string, Type*>::iterator it = types.find(name);
-	if (it == types.end()) {
-		StructType * type = newStructType(name, TYPE_STRUCT, node);
+	std::map<std::string, Type*>::iterator it = globalTypes.find(name);
+	if (it == globalTypes.end()) {
+		StructType * type = new StructType(name, TYPE_STRUCT, node);
+		globalTypes[name] = type;
 		type->types = elements;
 		return type;
 	}
@@ -486,9 +516,10 @@ YoProgCompiler::FuncDataType * YoProgCompiler::getFuncDataType(FuncNativeType * 
 	std::ostringstream buf;
 	buf << "func{" << funcNativePtr->name << "," << closureStructPtr->name << "}";
 	std::string name = buf.str();
-	std::map<std::string, Type*>::iterator it = types.find(name);
-	if (it == types.end()) {
-		FuncDataType * type = newFuncDataType(name, funcNativeType->parserNode);
+	std::map<std::string, Type*>::iterator it = globalTypes.find(name);
+	if (it == globalTypes.end()) {
+		FuncDataType * type = new FuncDataType(name, funcNativeType->parserNode);
+		globalTypes[name] = type;
 		type->funcNativeType = funcNativeType;
 		type->types.push_back(funcNativePtr);
 		type->types.push_back(closureStructPtr);
@@ -498,11 +529,36 @@ YoProgCompiler::FuncDataType * YoProgCompiler::getFuncDataType(FuncNativeType * 
 	return dynamic_cast<FuncDataType*>(it->second);
 }
 
+void YoProgCompiler::updateFuncNativeType(FuncNativeType * funcType)
+{
+	std::map<std::string, Type*>::iterator it = globalTypes.find(funcType->name);
+	if (it != globalTypes.end()) {
+		globalTypes.erase(it);
+	}
+	std::ostringstream buf;
+	buf << "func(";
+	for (int i = 0; i < (int)funcType->args.size(); i++) {
+		if (i > 0) {
+			buf << ",";
+		}
+		if (funcType->args[i].isMutable) {
+			buf << "mut ";
+		}
+		buf << funcType->args[i].type->name;
+	}
+	buf << ")" << funcType->resType->name;
+	funcType->name = buf.str();
+	globalTypes[funcType->name] = funcType;
+}
+
 YoProgCompiler::FuncNativeType * YoProgCompiler::getFuncNativeType(Scope * scope, YoParserNode * node)
 {
 	YO_ASSERT(node && node->type == YO_NODE_DECL_FUNC);
-	std::vector<Type*> argTypes;
-	std::vector<std::string> argNames;
+	FuncNativeType * funcType = new FuncNativeType("", node);
+	// FuncNativeType::Arg funcArg;
+	// std::vector<Type*> argTypes;
+	// std::vector<std::string> argNames;
+
 	std::ostringstream buf;
 	buf << "func(";
 
@@ -510,10 +566,10 @@ YoProgCompiler::FuncNativeType * YoProgCompiler::getFuncNativeType(Scope * scope
 
 	}
 
-	Type * closureAddr = getPtrType(getStructType(argTypes, node), node);
+	std::vector<Type*> emptyTypes;
+	Type * closureAddr = getPtrType(getStructType(emptyTypes, node), node);
 	buf << closureAddr->name;
-	argTypes.push_back(closureAddr);
-	argNames.push_back("#closureAddr");
+	funcType->args.push_back(FuncNativeType::Arg(closureAddr, "#closureAddr", false));
 
 	std::vector<YoParserNode*> argNodes;
 	collectNodesInReversList(argNodes, node->data.func.args);
@@ -531,49 +587,99 @@ YoProgCompiler::FuncNativeType * YoProgCompiler::getFuncNativeType(Scope * scope
 			YO_ASSERT(isError());
 			return NULL;
 		}
+		bool isMutable = argNode->data.declVar.isMutable;
 		for (size_t i = 0; i < nameArgs.size(); i++) {
 			// if (argTypes.size() > 0) {
-				buf << ",";
+			buf << ",";
 			// }
+			if (isMutable) {
+				buf << "mut ";
+			}
 			buf << argType->name;
-			argTypes.push_back(argType);
-
+			// argTypes.push_back(argType);
 			YO_ASSERT(nameArgs[i]->type == YO_NODE_NAME);
-			argNames.push_back(getTokenStr(nameArgs[i]));
+			// argNames.push_back(getTokenStr(nameArgs[i]));
+			funcType->args.push_back(FuncNativeType::Arg(argType, getTokenStr(nameArgs[i]), isMutable));
 		}
 	}
 	buf << ")";
-	Type * resType = node->data.func.type ? getParserType(scope, node->data.func.type) : getType(TYPE_VOID);
-	buf << resType->name;
-	std::string name = buf.str();
-	std::map<std::string, Type*>::iterator it = types.find(name);
-	if (it == types.end()) {
-		FuncNativeType * type = newFuncNativeType(name, node);
-		type->resType = resType;
-		type->argTypes = argTypes;
-		type->argNames = argNames;
-		return type;
+	funcType->resType = node->data.func.type ? getParserType(scope, node->data.func.type) : getType(TYPE_VOID);
+	buf << funcType->resType->name;
+	funcType->name = buf.str();
+	std::map<std::string, Type*>::iterator it = globalTypes.find(funcType->name);
+	if (it == globalTypes.end()) {
+		globalTypes[funcType->name] = funcType;
+		return funcType;
 	}
 	YO_ASSERT(dynamic_cast<FuncNativeType*>(it->second));
-	YO_ASSERT(it->second->name == name && it->second->etype == TYPE_FUNC_NATIVE);
-	return dynamic_cast<FuncNativeType*>(it->second);
+	YO_ASSERT(it->second->name == funcType->name && it->second->etype == TYPE_FUNC_NATIVE);
+	delete funcType;
+	return (FuncNativeType*)it->second;
 }
 
 YoProgCompiler::Type * YoProgCompiler::getMutType(Type * type, YoParserNode * node)
 {
+	YO_ASSERT(node);
 	if (!type) {
 		YO_ASSERT(isError());
+		return NULL;
+	}
+	switch (type->etype) {
+	case TYPE_MUT:
+		YO_ASSERT(dynamic_cast<SubType*>(type));
+		setError(ERROR_TYPE, node, "Can't muttable, type %s is already muttable", ((SubType*)type)->subType->name.c_str());
+		return NULL;
+	
+	case TYPE_CONST:
+		YO_ASSERT(dynamic_cast<SubType*>(type));
+		setError(ERROR_TYPE, node, "Can't muttable, type %s is already constant", ((SubType*)type)->subType->name.c_str());
 		return NULL;
 	}
 	std::ostringstream buf;
 	buf << "mut " << type->name;
 	std::string name = buf.str();
-	std::map<std::string, Type*>::iterator it = types.find(name);
-	if (it == types.end()) {
-		return newSubType(name, TYPE_MUT, type, node ? node : type->parserNode);
+	std::map<std::string, Type*>::iterator it = type->subTypes.find(name);
+	if (it == type->subTypes.end()) {
+		Type * subType = new SubType(name, TYPE_MUT, type, node);
+		type->subTypes[name] = subType;
+		subType->isUnknownYet = type->isUnknownYet;
+		return subType;
 	}
 	YO_ASSERT(dynamic_cast<SubType*>(it->second));
 	YO_ASSERT(it->second->name == name && it->second->etype == TYPE_MUT && ((SubType*)it->second)->subType == type);
+	return it->second;
+}
+
+YoProgCompiler::Type * YoProgCompiler::getConstType(Type * type, YoParserNode * node)
+{
+	YO_ASSERT(node);
+	if (!type) {
+		YO_ASSERT(isError());
+		return NULL;
+	}
+	switch (type->etype) {
+	case TYPE_MUT:
+		YO_ASSERT(dynamic_cast<SubType*>(type));
+		setError(ERROR_TYPE, node, "Can't constant, type %s is already muttable", ((SubType*)type)->subType->name.c_str());
+		return NULL;
+
+	case TYPE_CONST:
+		YO_ASSERT(dynamic_cast<SubType*>(type));
+		setError(ERROR_TYPE, node, "Can't constant, type %s is already constant", ((SubType*)type)->subType->name.c_str());
+		return NULL;
+	}
+	std::ostringstream buf;
+	buf << "const " << type->name;
+	std::string name = buf.str();
+	std::map<std::string, Type*>::iterator it = type->subTypes.find(name);
+	if (it == type->subTypes.end()) {
+		Type * subType = new SubType(name, TYPE_CONST, type, node);
+		type->subTypes[name] = subType;
+		subType->isUnknownYet = type->isUnknownYet;
+		return subType;
+	}
+	YO_ASSERT(dynamic_cast<SubType*>(it->second));
+	YO_ASSERT(it->second->name == name && it->second->etype == TYPE_CONST && ((SubType*)it->second)->subType == type);
 	return it->second;
 }
 
@@ -586,9 +692,12 @@ YoProgCompiler::Type * YoProgCompiler::getPtrType(Type * type, YoParserNode * no
 	std::ostringstream buf;
 	buf << "*" << type->name;
 	std::string name = buf.str();
-	std::map<std::string, Type*>::iterator it = types.find(name);
-	if (it == types.end()) {
-		return newSubType(name, TYPE_PTR, type, node ? node : type->parserNode);
+	std::map<std::string, Type*>::iterator it = type->subTypes.find(name);
+	if (it == type->subTypes.end()) {
+		Type * subType = new SubType(name, TYPE_PTR, type, node ? node : type->parserNode);
+		type->subTypes[name] = subType;
+		subType->isUnknownYet = type->isUnknownYet;
+		return subType;
 	}
 	YO_ASSERT(dynamic_cast<SubType*>(it->second));
 	YO_ASSERT(it->second->name == name && it->second->etype == TYPE_PTR && ((SubType*)it->second)->subType == type);
@@ -604,76 +713,21 @@ YoProgCompiler::Type * YoProgCompiler::getArrayType(unsigned size, Type * type, 
 	std::ostringstream buf;
 	buf << "[" << size << "]" << type->name;
 	std::string name = buf.str();
-	std::map<std::string, Type*>::iterator it = types.find(name);
-	if (it == types.end()) {
-		return newArrayType(name, size, type, node ? node : type->parserNode);
+	std::map<std::string, Type*>::iterator it = type->subTypes.find(name);
+	if (it == type->subTypes.end()) {
+		Type * subType = new ArrayType(name, size, type, node ? node : type->parserNode);
+		type->subTypes[name] = subType;
+		subType->isUnknownYet = type->isUnknownYet;
+		return subType;
 	}
 	YO_ASSERT(dynamic_cast<SubType*>(it->second));
 	YO_ASSERT(it->second->name == name && it->second->etype == TYPE_ARRAY && ((ArrayType*)it->second)->subType == type);
 	return it->second;
 }
 
-YoProgCompiler::Type * YoProgCompiler::getClassType(Scope * scope, YoParserNode * node)
-{
-	YO_ASSERT(node && node->type == YO_NODE_TYPE_CLASS);
-	if (node->data.typeClass.gen) {
-		setError(ERROR_UNREACHABLE, node, "Class templates are not supported yet");
-		return NULL;
-	}
-	if (node->data.typeClass.extends) {
-		setError(ERROR_UNREACHABLE, node, "Class extends are not supported yet");
-		return NULL;
-	}
-
-	std::vector<Type*> fieldTypes;
-	std::vector<std::string> fieldNames;
-	std::ostringstream buf;
-	buf << "class{";
-
-	std::vector<YoParserNode*> fieldNodes;
-	collectNodesInReversList(fieldNodes, node->data.typeClass.body);
-
-	std::vector<YoParserNode*>::reverse_iterator fit = fieldNodes.rbegin();
-	for (; fit != fieldNodes.rend(); ++fit) {
-		YoParserNode * fieldNode = *fit;
-		YO_ASSERT(fieldNode->type == YO_NODE_DECL_ARG);
-
-		std::vector<YoParserNode*> fieldNameNodes;
-		collectNodesInReversList(fieldNameNodes, fieldNode->data.declVar.name);
-
-		Type * fieldType = getParserType(scope, fieldNode->data.declVar.type);
-		if (!fieldType) {
-			YO_ASSERT(isError());
-			return NULL;
-		}
-		for (int i = fieldNameNodes.size()-1; i >= 0; i--) {
-			if (fieldTypes.size() > 0) {
-				buf << ",";
-			}
-			buf << fieldType->name;
-			fieldTypes.push_back(fieldType);
-
-			YO_ASSERT(fieldNameNodes[i]->type == YO_NODE_NAME);
-			fieldNames.push_back(getTokenStr(fieldNameNodes[i]));
-		}
-	}
-	buf << "}";
-	std::string name = buf.str();
-	std::map<std::string, Type*>::iterator it = types.find(name);
-	if (it == types.end()) {
-		StructType * structType = newStructType(name, TYPE_CLASS, node);
-		structType->types = fieldTypes;
-		structType->names = fieldNames;
-		return structType;
-	}
-	YO_ASSERT(dynamic_cast<StructType*>(it->second));
-	YO_ASSERT(it->second->name == name && it->second->etype == TYPE_CLASS && ((StructType*)it->second)->types == fieldTypes);
-	return it->second;
-}
-
 YoProgCompiler::Type * YoProgCompiler::getScopeType(Scope * scope, YoParserNode * node)
 {
-	YO_ASSERT(node && node->type == YO_NODE_TYPE_NAME);
+	YO_ASSERT(node && (node->type == YO_NODE_TYPE_NAME || node->type == YO_NODE_NAME));
 	std::string name = getTokenStr(node);
 	while (scope) {
 		std::map<std::string, Type*>::iterator it = scope->types.find(name);
@@ -686,6 +740,53 @@ YoProgCompiler::Type * YoProgCompiler::getScopeType(Scope * scope, YoParserNode 
 	return NULL;
 }
 
+YoProgCompiler::Type * YoProgCompiler::declStructType(Scope * scope, EType etype, const std::string& name, YoParserNode * node)
+{
+	YO_ASSERT(node && (node->type == YO_NODE_TYPE_CLASS && etype == TYPE_CLASS));
+	YO_ASSERT(scope->types.find(name) == scope->types.end());
+	if (node->data.typeClass.gen) {
+		setError(ERROR_UNREACHABLE, node, "Class templates are not supported yet");
+		return NULL;
+	}
+	if (node->data.typeClass.extends) {
+		setError(ERROR_UNREACHABLE, node, "Class extends are not supported yet");
+		return NULL;
+	}
+
+	StructType * type = new StructType(name, etype, node); // newStructType(name, TYPE_CLASS, node);
+	scope->types[name] = type;
+
+	std::vector<YoParserNode*> nodes;
+	collectNodesInReversList(nodes, node->data.typeClass.body);
+
+	std::vector<YoParserNode*>::reverse_iterator it = nodes.rbegin();
+	for (; it != nodes.rend(); ++it) {
+		YoParserNode * fieldNode = *it;
+		YO_ASSERT(fieldNode->type == YO_NODE_DECL_ARG);
+
+		std::vector<YoParserNode*> fieldNameNodes;
+		collectNodesInReversList(fieldNameNodes, fieldNode->data.declVar.name);
+
+		Type * fieldType = getParserType(scope, fieldNode->data.declVar.type);
+		if (!fieldType) {
+			YO_ASSERT(isError());
+			return NULL;
+		}
+		for (int i = fieldNameNodes.size() - 1; i >= 0; i--) {
+			YO_ASSERT(fieldNameNodes[i]->type == YO_NODE_NAME);
+			std::string fieldName = getTokenStr(fieldNameNodes[i]);
+			if (type->nameIndices.find(fieldName) != type->nameIndices.end()) {
+				setError(ERROR_FIELD_DUPLICATED, fieldNameNodes[i], "Member %s is already exist in %s", fieldName.c_str(), name.c_str());
+				return NULL;
+			}
+			type->nameIndices[fieldName] = type->names.size();
+			type->names.push_back(fieldName);
+			type->types.push_back(fieldType);
+		}
+	}
+	return type;
+}
+
 YoProgCompiler::Type * YoProgCompiler::getParserType(Scope * scope, YoParserNode * node)
 {
 	YO_ASSERT(node);
@@ -694,11 +795,11 @@ YoProgCompiler::Type * YoProgCompiler::getParserType(Scope * scope, YoParserNode
 	case YO_NODE_DECL_FUNC: 
 		return getFuncDataType(getFuncNativeType(scope, node));
 	
-	case YO_NODE_TYPE_CLASS:
-		return getClassType(scope, node);
-
 	case YO_NODE_TYPE_MUTABLE:
 		return getMutType(getParserType(scope, node->data.typeMutable.type), node);
+
+	case YO_NODE_TYPE_CONST:
+		return getConstType(getParserType(scope, node->data.typeMutable.type), node);
 
 	case YO_NODE_TYPE_PTR:
 		return getPtrType(getParserType(scope, node->data.typePtr.type), node);
@@ -707,6 +808,7 @@ YoProgCompiler::Type * YoProgCompiler::getParserType(Scope * scope, YoParserNode
 		return getParserStdType(node->data.typeStdName);
 
 	case YO_NODE_TYPE_NAME:
+	case YO_NODE_NAME:
 		return getScopeType(scope, node);
 
 	case YO_NODE_TYPE_ARR:
@@ -746,6 +848,13 @@ bool YoProgCompiler::compileModule(YoParserNode * node)
 		switch (stmt->type) {
 		case YO_NODE_DECL_FUNC:
 			if (!compileFunc(module, stmt)) {
+				YO_ASSERT(isError());
+				return false;
+			}
+			break;
+
+		case YO_NODE_DECL_TYPE:
+			if (!compileDeclType(module, stmt)) {
 				YO_ASSERT(isError());
 				return false;
 			}
@@ -861,11 +970,16 @@ YoProgCompiler::Type * YoProgCompiler::compileDeclType(Scope * scope, YoParserNo
 	std::string name = getTokenStr(node->data.declType.name);
 	std::map<std::string, Type*>::iterator it = scope->types.find(name);
 	if (it != scope->types.end()) {
-		setError(ERROR_DUPLICATE_TYPE, node, "Type %s is already exist", name.c_str());
+		setError(ERROR_TYPE_DUPLICATED, node, "Type %s is already exist", name.c_str());
 		return NULL;
 	}
 
-	Type * type = getParserType(scope, node->data.declType.type);
+	YoParserNode * typeNode = node->data.declType.type;
+	switch (typeNode->type) {
+	case YO_NODE_TYPE_CLASS:
+		return declStructType(scope, TYPE_CLASS, name, typeNode);
+	}
+	Type * type = getParserType(scope, typeNode);
 	if (!type) {
 		YO_ASSERT(isError());
 		return NULL;
@@ -893,6 +1007,7 @@ YoProgCompiler::StackValue * YoProgCompiler::compileDeclVar(Scope * scope, YoPar
 
 	YO_ASSERT(node->data.declVar.name && node->data.declVar.name->type == YO_NODE_NAME);
 	StackValue * stackValue = new StackValue(type, getTokenStr(node->data.declVar.name), node);
+	stackValue->isMutable = node->data.declVar.isMutable;
 	scope->stackValues.push_back(stackValue);
 	if (scope->escope == SCOPE_BLOCK) {
 		getFunction(scope)->stackValues.push_back(stackValue);
@@ -958,7 +1073,7 @@ YoProgCompiler::Operation * YoProgCompiler::compileOp(Scope * scope, YoParserNod
 	case YO_NODE_CONST_FALSE:
 		op = newOperation(OP_CONST_INT, node);
 		op->constInt.val = node->type == YO_NODE_CONST_TRUE ? 1 : 0;
-		op->constInt.bits = 8;
+		op->constInt.bits = 1;
 		op->constInt.isSigned = false;
 		op->type = getIntType(op->constInt.bits, op->constInt.isSigned);
 		return op;
@@ -986,6 +1101,12 @@ YoProgCompiler::Operation * YoProgCompiler::compileOp(Scope * scope, YoParserNod
 	case YO_NODE_NAME:
 		name = getTokenStr(node);
 		if (!findName(nameInfo, scope, name)) {
+			Type * type = getParserType(scope, node);
+			if (type) {
+				op = newOperation(OP_TYPE, node);
+				op->type = type;
+				return op;
+			}
 			setError(ERROR_NAME_NOT_FOUND, node, "Name not found: %s", name.c_str());
 			return NULL;
 		}
@@ -1002,8 +1123,11 @@ YoProgCompiler::Operation * YoProgCompiler::compileOp(Scope * scope, YoParserNod
 		setError(ERROR_UNREACHABLE, node, "Error name: %s", name.c_str());
 		return NULL;
 
-	case T_ASSIGN:
+	case YO_NODE_ASSIGN:
 		return compileAssign(scope, node);
+
+	// case YO_NODE_NEW_OBJ_PROPS:
+	//	return NULL;
 
 	case YO_NODE_BIN_OP:
 		return compileBinOp(scope, node);
@@ -1013,6 +1137,9 @@ YoProgCompiler::Operation * YoProgCompiler::compileOp(Scope * scope, YoParserNod
 
 	case YO_NODE_DOTNAME:
 		return compileDotName(scope, node);
+
+	case YO_NODE_SIZEOF:
+		return compileSizeOf(scope, node);
 
 	case YO_NODE_CALL:
 		return compileCall(scope, node);
@@ -1064,12 +1191,20 @@ YoProgCompiler::Module * YoProgCompiler::getModule(Scope * scope)
 YoProgCompiler::Operation * YoProgCompiler::compileDotOp(Scope * scope, Operation * left, YoParserNode * right, YoParserNode * node)
 {
 	if (right->type != YO_NODE_NAME && right->type != YO_NODE_DOTNAME) {
-		setError(ERROR_UNREACHABLE, right, "Field name required: %d", (int)right->type);
+		setError(ERROR_UNREACHABLE, right, "Member name required: %d", (int)right->type);
 		return NULL;
 	}
 	Type * leftValueType;
-	if (isValueOp(left)) {
+	bool isLeftTypeOp = isTypeOp(left);
+	if (isLeftTypeOp) {
 		leftValueType = left->type;
+		if (leftValueType->etype != TYPE_STRUCT && leftValueType->etype != TYPE_CLASS) {
+			setError(ERROR_TYPE, node, "Struct or class type required: %s", leftValueType->name.c_str());
+			return NULL;
+		}
+	}
+	else if (isValueOp(left)) {
+		leftValueType = skipMutType(left->type);
 		if (leftValueType->etype != TYPE_STRUCT && leftValueType->etype != TYPE_CLASS) {
 			setError(ERROR_TYPE, node, "Struct or class type required: %s", leftValueType->name.c_str());
 			return NULL;
@@ -1080,12 +1215,13 @@ YoProgCompiler::Operation * YoProgCompiler::compileDotOp(Scope * scope, Operatio
 		Operation * storeOp = newOperation(OP_STORE_VALUE, node);
 		storeOp->ops.push_back(left);
 		storeOp->ops.push_back(stackValueOp);
+		// storeOp->type = left->type;
 
 		stackValueOp->ops.push_back(storeOp);
 		left = stackValueOp;
 	}
 	else{
-		leftValueType = getValueType(left);
+		leftValueType = skipMutType(getValueType(left));
 		if (leftValueType->etype != TYPE_STRUCT && leftValueType->etype != TYPE_CLASS) {
 			setError(ERROR_TYPE, node, "Struct or class type required: %s", leftValueType->name.c_str());
 			return NULL;
@@ -1094,12 +1230,18 @@ YoProgCompiler::Operation * YoProgCompiler::compileDotOp(Scope * scope, Operatio
 	std::string fieldName = getTokenStr(right);
 	StructType * structType = dynamic_cast<StructType*>(leftValueType);
 	YO_ASSERT(structType);
-	for (int i = 0; i < (int)structType->names.size(); i++) {
-		if (fieldName == structType->names[i]) {
-			return newStructElementPtrOp(left, i, node);
+	std::map<std::string, int>::iterator it = structType->nameIndices.find(fieldName);
+	if (it != structType->nameIndices.end()) {
+		if (isLeftTypeOp) {
+			Operation * op = newOperation(OP_TYPE_STRUCT_ELEMENT, node);
+			op->typeStructElement.parent = structType;
+			op->typeStructElement.index = it->second;
+			op->type = structType->types[it->second];
+			return op;
 		}
+		return newStructElementPtrOp(left, it->second, node);
 	}
-	setError(ERROR_FIELD, node, "Field %s is not found in %s", fieldName.c_str(), structType->name.c_str());
+	setError(ERROR_FIELD_NOT_FOUND, node, "Member %s is not found in %s", fieldName.c_str(), structType->name.c_str());
 	return NULL;
 }
 
@@ -1128,6 +1270,20 @@ YoProgCompiler::Operation * YoProgCompiler::compileDotName(Scope * scope, YoPars
 	return op;
 }
 
+YoProgCompiler::Operation * YoProgCompiler::compileSizeOf(Scope * scope, YoParserNode * node)
+{
+	YO_ASSERT(node && node->type == YO_NODE_SIZEOF);
+	Operation * op = compileValue(scope, node->data.sizeOf.node);
+	if (!op) {
+		YO_ASSERT(isError());
+		return NULL;
+	}
+	Operation * sizeOp = newOperation(OP_SIZEOF, node);
+	sizeOp->ops.push_back(op);
+	sizeOp->type = getIntType(sizeof(int) * 8, false);
+	return sizeOp;
+}
+
 YoProgCompiler::Operation * YoProgCompiler::compileCall(Scope * scope, YoParserNode * node)
 {
 	YO_ASSERT(node && node->type == YO_NODE_CALL);
@@ -1136,7 +1292,7 @@ YoProgCompiler::Operation * YoProgCompiler::compileCall(Scope * scope, YoParserN
 		YO_ASSERT(isError());
 		return NULL;
 	}
-	if (nameOp->eop == OP_STACKVALUE_PTR) {
+	if (nameOp->eop == OP_STACK_VALUE_PTR) {
 		if (!nameOp->stackValue->type){
 			setError(ERROR_UNREACHABLE, nameOp->stackValue->parserNode, "Type required");
 			return NULL;
@@ -1172,10 +1328,10 @@ YoProgCompiler::Operation * YoProgCompiler::compileCall(Scope * scope, YoParserN
 		collectNodesInReversList(argNodes, node->data.call.args);
 		op->call.args = argNodes.size();
 
-		YO_ASSERT(funcDataType->funcNativeType->argTypes.size()-1/*closure*/ == argNodes.size());
+		YO_ASSERT(funcDataType->funcNativeType->args.size()-1/*closure*/ == argNodes.size());
 		for (size_t i = 0; i < argNodes.size(); i++) {
 			Operation * argOp = compileOp(scope, argNodes[i]);
-			argOp = convertValueToType(scope, argOp, funcDataType->funcNativeType->argTypes[i]);
+			argOp = convertValueToType(scope, argOp, funcDataType->funcNativeType->args[i].type);
 			if (!argOp) {
 				YO_ASSERT(isError());
 				return NULL;
@@ -1192,6 +1348,7 @@ YoProgCompiler::StackValue * YoProgCompiler::allocTempValue(Scope * scope, Type 
 {
 	StackValue * temp = new StackValue(type, name, node);
 	getFunction(scope)->stackValues.push_back(temp);
+	temp->isMutable = true;
 	temp->isTemp = true;
 	return temp;
 }
@@ -1205,7 +1362,7 @@ YoProgCompiler::Operation * YoProgCompiler::newOperation(EOperation eop, YoParse
 
 YoProgCompiler::Operation * YoProgCompiler::newStackValuePtrOp(StackValue * value, YoParserNode * node)
 {
-	Operation * op = newOperation(OP_STACKVALUE_PTR, node);
+	Operation * op = newOperation(OP_STACK_VALUE_PTR, node);
 	op->stackValue = value;
 	op->type = value->type ? getPtrType(value->type) : NULL;
 	return op;
@@ -1214,7 +1371,16 @@ YoProgCompiler::Operation * YoProgCompiler::newStackValuePtrOp(StackValue * valu
 YoProgCompiler::Type * YoProgCompiler::getPtrSubType(Type * ptrType, YoParserNode * node)
 {
 	if (!ptrType || ptrType->etype != TYPE_PTR || !dynamic_cast<SubType*>(ptrType) || !((SubType*)ptrType)->subType) {
-		setError(ERROR_UNREACHABLE, node, "Pointer type required");
+		setError(ERROR_UNREACHABLE, node ? node : ptrType->parserNode, "Pointer type required");
+		return NULL;
+	}
+	return ((SubType*)ptrType)->subType;
+}
+
+YoProgCompiler::Type * YoProgCompiler::getSubType(Type * ptrType, YoParserNode * node)
+{
+	if (!ptrType || !dynamic_cast<SubType*>(ptrType) || !((SubType*)ptrType)->subType) {
+		setError(ERROR_UNREACHABLE, node ? node : ptrType->parserNode, "SubType type required");
 		return NULL;
 	}
 	return ((SubType*)ptrType)->subType;
@@ -1222,8 +1388,9 @@ YoProgCompiler::Type * YoProgCompiler::getPtrSubType(Type * ptrType, YoParserNod
 
 YoProgCompiler::Operation * YoProgCompiler::newStructElementPtrOp(Operation * ptrOp, int index, YoParserNode * node)
 {
-	Type * type = getPtrSubType(ptrOp->type, node);
+	Type * type = skipMutType(getPtrSubType(ptrOp->type, node));
 	if (!type) {
+		YO_ASSERT(isError());
 		return NULL;
 	}
 	if ((type->etype != TYPE_STRUCT && type->etype != TYPE_CLASS && type->etype != TYPE_FUNC_DATA) || !dynamic_cast<StructType*>(type)) {
@@ -1235,7 +1402,7 @@ YoProgCompiler::Operation * YoProgCompiler::newStructElementPtrOp(Operation * pt
 		setError(ERROR_UNREACHABLE, node, "Error element index: %d", index);
 		return NULL;
 	}
-	Operation * elemPtr = newOperation(OP_STRUCTELEMENT_PTR, node);
+	Operation * elemPtr = newOperation(OP_STRUCT_ELEMENT_PTR, node);
 	elemPtr->ops.push_back(ptrOp);
 	elemPtr->structElementIndex = index;
 	elemPtr->type = getPtrType(structType->types[index], node);
@@ -1310,22 +1477,26 @@ YoProgCompiler::Operation * YoProgCompiler::compileAssign(Scope * scope, YoParse
 	Operation * op;
 	Type * leftValueType;
 	switch (left->eop) {
-	case OP_STACKVALUE_PTR:
+	case OP_STACK_VALUE_PTR:
 		if (node->data.assign.op == T_INIT_ASSIGN) {
 			left->stackValue->isInitialized = true;
 			left->stackValue->isUsed = false;
 		}
-		YO_ASSERT(left->type && left->stackValue && left->stackValue->type);
-		if (left->stackValue->type->etype == TYPE_UNKNOWN_YET) {
-			YO_ASSERT(right->type);
-			left->stackValue->type = getValueType(right);
+		else if (!left->stackValue->isMutable) {
+			setError(ERROR_MUTABLE_REQUIRED, node, "Variable %s is not matable", left->stackValue->name.c_str());
+			return NULL;
+		}
+		YO_ASSERT(left->type && left->stackValue && left->stackValue->type && right->type);
+		// if (left->stackValue->type->etype == TYPE_UNKNOWN_YET) {
+		if (matchTypeTemplate(scope, left->stackValue->type, getValueType(right))) {
+			// left->stackValue->type = getValueType(right);
 			left->type = getPtrType(left->stackValue->type);
 		}
 		// no break
 
-	case OP_STRUCTELEMENT_PTR:
+	case OP_STRUCT_ELEMENT_PTR:
 	case OP_ELEMENT_PTR:
-		YO_ASSERT(node->data.assign.op == T_ASSIGN || node->data.assign.op == T_INIT_ASSIGN && left->eop == OP_STACKVALUE_PTR);
+		YO_ASSERT(node->data.assign.op == T_ASSIGN || node->data.assign.op == T_INIT_ASSIGN && left->eop == OP_STACK_VALUE_PTR);
 		leftValueType = getPtrSubType(left->type);
 		if (!leftValueType) {
 			YO_ASSERT(isError());
@@ -1340,13 +1511,13 @@ YoProgCompiler::Operation * YoProgCompiler::compileAssign(Scope * scope, YoParse
 			op = newOperation(OP_STORE_VALUE, node);
 			op->ops.push_back(right);	// src
 			op->ops.push_back(left);	// dst
-			// op->type = right->type;
+			op->type = right->type;
 			return op;
 		}
 		op = newOperation(isValueOp(right) ? OP_STORE_VALUE : OP_STORE_PTR, node);
 		op->ops.push_back(right);	// src
 		op->ops.push_back(left);	// dst
-		// op->type = right->type;
+		op->type = right->type;
 		return op;
 	}
 	setError(ERROR_OP, left->parserNode, "Not supported assign for left op: %d", (int)left->eop);
@@ -1371,34 +1542,50 @@ YoProgCompiler::Operation * YoProgCompiler::compileIndexOp(Scope * scope, YoPars
 		setError(ERROR_TYPE_UNKNOWN, right->parserNode, "Type unknown");
 		return NULL;
 	}
+	Type * subType;
+	int bits;
+	bool isSigned;
+	switch (left->eop) {
+	case OP_TYPE:
+		switch (left->type->etype) {
+		case TYPE_ARRAY:
+			YO_ASSERT(dynamic_cast<ArrayType*>(left->type));
+			subType = ((ArrayType*)left->type)->subType;
+			break;
+		
+		case TYPE_PTR:
+			YO_ASSERT(dynamic_cast<SubType*>(left->type));
+			subType = ((SubType*)left->type)->subType;
+			break;
+
+		default:
+			setError(ERROR_TYPE, left->parserNode, "Array or pointer type required");
+			return NULL;
+		}
+		if (getIntBits(right->type, bits, isSigned)) {
+			Operation * op = newOperation(OP_TYPE, node);
+			op->type = subType;
+			return op;
+		}
+		setError(ERROR_TYPE, right->parserNode, "Integer type required");
+		return NULL;
+	}
 	Type * leftValueType = getPtrSubType(left->type, node);
 	if (!leftValueType) {
 		return NULL;
 	}
-	Operation * op;
 	switch (leftValueType->etype) {
 	case TYPE_ARRAY:
 		YO_ASSERT(dynamic_cast<ArrayType*>(leftValueType));
-		switch (right->type->etype) {
-		case TYPE_INT8:
-		case TYPE_INT16:
-		case TYPE_INT32:
-		case TYPE_INT64:
-		case TYPE_UINT8:
-		case TYPE_UINT16:
-		case TYPE_UINT32:
-		case TYPE_UINT64:
-			break;
-
-		default:
-			setError(ERROR_TYPE, right->parserNode, "Integer type required");
-			return NULL;
+		if (getIntBits(right->type, bits, isSigned)) {
+			Operation * op = newOperation(OP_ELEMENT_PTR, node);
+			op->type = getPtrType(((ArrayType*)leftValueType)->subType);
+			op->ops.push_back(left);
+			op->ops.push_back(right);
+			return op;
 		}
-		op = newOperation(OP_ELEMENT_PTR, node);
-		op->type = getPtrType(((ArrayType*)leftValueType)->subType);
-		op->ops.push_back(left);
-		op->ops.push_back(right);
-		return op;
+		setError(ERROR_TYPE, right->parserNode, "Integer type required");
+		return NULL;
 	}
 	setError(ERROR_UNREACHABLE, left->parserNode, "Not supported type for index");
 	return NULL;
@@ -1463,13 +1650,49 @@ bool YoProgCompiler::compileStmtAssign(Scope * scope, YoParserNode * node)
 	return addStmt(scope, compileAssign(scope, node));
 }
 
-bool YoProgCompiler::matchTypeTemplate(Scope * scope, Type *& src, Type * dst)
+bool YoProgCompiler::matchTypeTemplate(Scope * scope, Type *& a, Type * b)
 {
-	if (src->etype == TYPE_UNKNOWN_YET) {
-		src = dst;
+	if (b->etype == TYPE_UNKNOWN_YET) {
+		YO_ASSERT(false);
+		return false;
+	}
+	if (a->etype == TYPE_UNKNOWN_YET) {
+		a = b;
 		return true;
 	}
-
+	SubType * curLeft = dynamic_cast<SubType*>(a);
+	SubType * curRight = dynamic_cast<SubType*>(b);
+	if (!curLeft || !curRight) {
+		return false;
+	}
+	for (;;) {
+		if (curLeft->etype != curRight->etype) {
+			return false;
+		}
+		switch (curLeft->etype) {
+		case TYPE_ARRAY:
+			YO_ASSERT(dynamic_cast<ArrayType*>(curLeft));
+			YO_ASSERT(dynamic_cast<ArrayType*>(curRight));
+			if (((ArrayType*)curLeft)->size != ((ArrayType*)curRight)->size) {
+				return false;
+			}
+			break;
+		}
+		if (curRight->subType->etype == TYPE_UNKNOWN_YET) {
+			YO_ASSERT(false);
+			return false;
+		}
+		if (curLeft->subType->etype == TYPE_UNKNOWN_YET) {
+			// curLeft->subType = curRight->subType;
+			a = b;
+			return true;
+		}
+		curLeft = dynamic_cast<SubType*>(curLeft->subType);
+		curRight = dynamic_cast<SubType*>(curRight->subType);
+		if (!curLeft || !curRight) {
+			return false;
+		}
+	}
 	return false;
 }
 
@@ -1480,7 +1703,10 @@ bool YoProgCompiler::compileStmtReturn(Scope * scope, YoParserNode * node)
 	if (node->data.stmtReturn.node) {
 		Operation * value = compileValue(scope, node->data.stmtReturn.node);
 		Function * func = getFunction(scope);
-		if (!matchTypeTemplate(scope, func->funcNativeType->resType, value->type)) {
+		if (matchTypeTemplate(scope, func->funcNativeType->resType, value->type)) {
+			updateFuncNativeType(func->funcNativeType);
+		}
+		else {
 			value = convertValueToType(scope, value, func->funcNativeType->resType);
 			if (!value) {
 				return false;
@@ -1781,12 +2007,26 @@ bool YoProgCompiler::isValueOp(Operation * op)
 		return false;
 	}
 	switch (op->eop) {
-	case OP_STACKVALUE_PTR:
-	case OP_STRUCTELEMENT_PTR:
+	case OP_STACK_VALUE_PTR:
+	case OP_STRUCT_ELEMENT_PTR:
 	case OP_ELEMENT_PTR:
 		return false;
 	}
 	return true;
+}
+
+bool YoProgCompiler::isTypeOp(Operation * op)
+{
+	YO_ASSERT(op->type);
+	if (!op) {
+		return false;
+	}
+	switch (op->eop) {
+	case OP_TYPE:
+	case OP_TYPE_STRUCT_ELEMENT:
+		return true;
+	}
+	return false;
 }
 
 YoProgCompiler::Type * YoProgCompiler::getValueType(Operation * op)
@@ -1797,12 +2037,27 @@ YoProgCompiler::Type * YoProgCompiler::getValueType(Operation * op)
 	}
 	YO_ASSERT(op->type);
 	switch (op->eop) {
-	case OP_STACKVALUE_PTR:
-	case OP_STRUCTELEMENT_PTR:
+	case OP_STACK_VALUE_PTR:
+	case OP_STRUCT_ELEMENT_PTR:
 	case OP_ELEMENT_PTR:
 		return getPtrSubType(op->type);
 	}
 	return op->type;
+}
+
+YoProgCompiler::Type * YoProgCompiler::skipMutType(Type * type)
+{
+	if (!type) {
+		YO_ASSERT(isError());
+		return NULL;
+	}
+	switch (type->etype) {
+	case TYPE_MUT:
+	case TYPE_CONST:
+		YO_ASSERT(dynamic_cast<SubType*>(type) && ((SubType*)type)->subType);
+		return ((SubType*)type)->subType;
+	}
+	return type;
 }
 
 YoProgCompiler::Operation * YoProgCompiler::getValue(Scope * scope, Operation * op)
@@ -1814,8 +2069,15 @@ YoProgCompiler::Operation * YoProgCompiler::getValue(Scope * scope, Operation * 
 	Type * type;
 	Operation * loadOp;
 	switch (op->eop) {
-	case OP_STACKVALUE_PTR:
-	case OP_STRUCTELEMENT_PTR:
+	case OP_STACK_VALUE_PTR:
+#if 0
+		if (!op->stackValue->isInitialized) {
+			setError(ERROR_VAR_NOT_INITIALIZED, op->stackValue->parserNode, "Variable %s is not initialized", op->stackValue->name.c_str());
+			return NULL;
+		}
+		// no break
+#endif
+	case OP_STRUCT_ELEMENT_PTR:
 	case OP_ELEMENT_PTR:
 		type = getPtrSubType(op->type);
 		if (!type) {
@@ -1859,15 +2121,6 @@ YoProgCompiler::Operation * YoProgCompiler::convertValueToType(Scope * scope, Op
 	if (valueType == type) {
 		return op;
 	}
-	/* if (op->type->etype == TYPE_PTR && type->etype != TYPE_PTR) {
-		if (getPtrSubType(op->type) != type) {
-			return NULL;
-		}
-		op = convertOpToValue(scope, op);
-		if (!op) {
-			return NULL;
-		}
-	} */
 	CastOp castOp = getCastOp(valueType, type);
 	if (castOp.eop != OP_NOP) {
 		if (castOp.castType == CAST_AUTO || convertType == CONVERT_BY_HAND) {
@@ -1875,6 +2128,22 @@ YoProgCompiler::Operation * YoProgCompiler::convertValueToType(Scope * scope, Op
 			convertOp->type = type;
 			convertOp->ops.push_back(isValue ? op : getValue(scope, op));
 			return convertOp;
+		}
+		int bits;
+		bool isSigned;
+		switch (op->eop) {
+		case OP_CONST_INT:
+			if (getIntBits(type, bits, isSigned)) {
+				// YO_U64 mask = isSigned ? (YO_U64)-1 : 0;
+				YO_U64 mask = ((YO_U64)1 << bits) - 1;
+				if ((op->constInt.val & mask) == op->constInt.val) {
+					Operation * convertOp = newOperation(castOp.eop, op->parserNode);
+					convertOp->type = type;
+					convertOp->ops.push_back(isValue ? op : getValue(scope, op));
+					return convertOp;
+				}
+			}
+			break;
 		}
 		setError(ERROR_CONVERT_TO_TYPE, op->parserNode, "Error auto convert: %s to %s, posible lost value", op->type->name.c_str(), type->name.c_str());
 		return NULL;

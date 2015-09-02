@@ -1,16 +1,50 @@
 module HelloWorld
 
+type ClosureData class {
+	
+}
 
 func main() int32 {
 
+	type TestBytes class {
+		a, b byte
+		c int
+	}
+	
 	type Test class {
+		c TestBytes
 		a, b int
 	}
 	
-	let t Test
-	t.b = 100
+	/* impl Test {
+		
+		func GetA() int {
+			return a
+		}
+		
+		func mut SetA(a int) {
+			@a = a
+		}
+		// func mut setA(a int){ @a = a; }
+		
+		static {
+			
+		}
+	} */
+	
+	let mut t = Test{}
+	t.c.b = 10
+	// t.c.c = t.GetA()
+	t.b = 500
+	
+	// t = Test{a=400, b=700}
 
-	let i ?
+	type a [10]byte
+	let mut i = sizeof a[2]
+	i = sizeof t
+	i = sizeof Test
+	i = sizeof t.c.c
+	i = sizeof Test.a
 	i = 10i8 + 8u16
 	
 	// let k
@@ -20,7 +54,7 @@ func main() int32 {
 		return 3
 	}
 	
-	func getArr() [4]int32 {
+	func getArr() ? {
 		let arr [4]int32
 		arr[1] = 1000
 		return arr
