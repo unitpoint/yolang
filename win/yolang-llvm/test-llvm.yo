@@ -11,6 +11,10 @@ func test(i, j int) int {
 func main() int32 {
 	
 	let jj = test(100000, 80000)
+	
+	// let ff func(i, j int)int = test
+	let ff = test
+	jj = ff(400000, 30000)
 
 	type TestBytes class {
 		a, b byte
@@ -57,8 +61,8 @@ func main() int32 {
 	// let k
 	let j = i + 2.5 + t.b
 	
-	let f = func() ? {
-		return 3
+	let f = func(i float) ? {
+		return i
 	}
 	
 	func getArr() ? {
@@ -79,5 +83,5 @@ func main() int32 {
 	&v = 8
 	*/
 	let k = 5
-	return (arr2[k][1] + j + f() + jj) as int32
+	return (arr2[k][1] + j + f(3) + jj) as int32
 }

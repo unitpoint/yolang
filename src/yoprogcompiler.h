@@ -119,6 +119,7 @@ public:
 		void updateNameIndices();
 	};
 
+	class FuncDataType;
 	class FuncNativeType : public Type
 	{
 	public:
@@ -126,15 +127,18 @@ public:
 		struct Arg
 		{
 			Type * type;
-			std::string name;
+			// std::string name;
 			bool isMutable;
 
 			Arg(){ type = NULL; isMutable = false; }
-			Arg(Type * t, const std::string& n, bool m): name(n){ type = t; isMutable = m; }
+			// Arg(Type * t, const std::string& n, bool m): name(n){ type = t; isMutable = m; }
+			Arg(Type * t, bool m){ type = t; isMutable = m; }
 		};
 
 		std::vector<Arg> args;
 		Type * resType;
+
+		FuncDataType * funcDataType;
 
 		FuncNativeType(const std::string& name, YoParserNode*);
 		~FuncNativeType();
@@ -225,13 +229,14 @@ public:
 	public:
 
 		FuncNativeType * funcNativeType;
+		std::vector<std::string> argNames;
 		std::vector<Operation*> ops;
 
 		struct {
 			int index;
 		} ext;
 
-		Function(Scope * parent, FuncNativeType * funcNativeType, const std::string& name, YoParserNode*);
+		Function(Scope * parent, FuncNativeType * funcNativeType, const std::vector<std::string>& argNames, const std::string& name, YoParserNode*);
 		~Function();
 	};
 
@@ -323,6 +328,7 @@ public:
 
 		// OP_LIST,
 		OP_STACK_VALUE_MEMZERO,
+		OP_VALUE_ZERO,
 	};
 
 	class Operation
@@ -445,6 +451,7 @@ protected:
 	Operation * newOperation(EOperation, YoParserNode*);
 	Operation * newStackValuePtrOp(StackValue * value, YoParserNode*);
 	Operation * newStructElementPtrOp(Operation * ptrOp, int index, YoParserNode*);
+	Operation * newFuncDataPtrOp(Scope*, Function * func, YoParserNode*);
 
 	int getConvertKey(EType from, EType to);
 	Type * getBinOpNumCast(Type * a, Type * b);
@@ -472,7 +479,7 @@ protected:
 	Type * getParserStdType(int stdType);
 	Type * getParserType(Scope*, YoParserNode*);
 	Type * getScopeType(Scope*, YoParserNode*);
-	FuncNativeType * getFuncNativeType(Scope*, YoParserNode*);
+	FuncNativeType * getFuncNativeType(std::vector<std::string>& argNames, Scope*, YoParserNode*);
 	FuncDataType * getFuncDataType(FuncNativeType*);
 	StructType * getStructType(const std::vector<Type*>& elements, YoParserNode*);
 
@@ -480,7 +487,7 @@ protected:
 
 	Type * getPtrSubType(Type * ptrType, YoParserNode* = NULL);
 	Type * getValueType(Operation * op);
-	Type * skipMutType(Type * type);
+	Type * skipTypeAttrs(Type * type);
 
 	bool matchTypeTemplate(Scope*, Type *& src, Type * dst);
 	void updateFuncNativeType(FuncNativeType*);
@@ -519,8 +526,8 @@ protected:
 		CONVERT_BY_HAND
 	};
 
-	Operation * convertPtrToType(Scope*, Operation*, Type*);
-	Operation * convertValueToType(Scope*, Operation*, Type*, EConvertType = CONVERT_AUTO);
+	Operation * convertPtrToType(Scope*, Operation*, Type*, YoParserNode*);
+	Operation * convertValueToType(Scope*, Operation*, Type*, EConvertType, YoParserNode*);
 	Operation * getValue(Scope*, Operation*);
 };
 

@@ -374,6 +374,10 @@ llvm::Value * YoLLVMCompiler::compileOp(FuncParams * func, YoProgCompiler::Scope
 		YO_ASSERT(progOp->ops.size() == 0);
 		return Constant::getNullValue(getType(progOp->type));
 
+	case YoProgCompiler::OP_VALUE_ZERO:
+		YO_ASSERT(progOp->ops.size() == 0);
+		return Constant::getNullValue(getType(progOp->type));
+
 	case YoProgCompiler::OP_CONST_INT:
 		YO_ASSERT(progOp->ops.size() == 0);
 		return ConstantInt::get(getType(progOp->type),
@@ -617,8 +621,8 @@ llvm::Function * YoLLVMCompiler::compileDeclFunc(ModuleParams * module, YoProgCo
 
 	int i = 0;
 	Function::arg_iterator ait = func->arg_begin();
-	for (; i < (int)progFunc->funcNativeType->args.size(); ++ait, ++i) {
-		ait->setName("#" + progFunc->funcNativeType->args[i].name);
+	for (; i < (int)progFunc->argNames.size(); ++ait, ++i) {
+		ait->setName("#" + progFunc->argNames[i]);
 	}
 
 	return func;
