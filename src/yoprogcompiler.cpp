@@ -139,8 +139,10 @@ YoProgCompiler::Value::~Value()
 YoProgCompiler::StackValue::StackValue(Type * p_type, const std::string& p_name, YoParserNode * p_node) : Value(VALUE_STACKVALUE, p_name, p_node)
 {
 	type = p_type;
+	isArg = false;
 	isMutable = false;
 	isInitialized = false;
+	isChanged = false;
 	isUsed = false;
 	isTemp = false;
 	// isClosure = false;
@@ -1435,6 +1437,7 @@ YoProgCompiler::Function * YoProgCompiler::compileFunc(Scope * scope, YoParserNo
 		}
 
 		StackValue * stackValue = new StackValue(arg.type, arg.name, node);
+		stackValue->isArg = true;
 		stackValue->isMutable = arg.isMutable;
 		func->stackValues.push_back(stackValue);
 	}
@@ -1931,9 +1934,9 @@ YoProgCompiler::Operation * YoProgCompiler::compileCall(Scope * scope, YoParserN
 		}
 
 		YO_ASSERT(funcDataType->funcNativeType->args.size()-1/*closure*/ == argNodes.size());
-		for (size_t i = 0; i < argNodes.size(); i++) {
-			Operation * argOp = compileOp(scope, argNodes[i]);
-			argOp = convertValueToType(scope, argOp, funcDataType->funcNativeType->args[i].type);
+		for (int i = 0; i < (int)argNodes.size(); i++) {
+			Operation * argOp = compileOp(scope, argNodes[argNodes.size()-1-i]);
+			argOp = convertValueToType(scope, argOp, funcDataType->funcNativeType->args[i+1].type);
 			if (!argOp) {
 				YO_ASSERT(isError());
 				return NULL;
@@ -1968,8 +1971,8 @@ YoProgCompiler::Operation * YoProgCompiler::compileCall(Scope * scope, YoParserN
 		}
 
 		YO_ASSERT(nameOp->func->funcNativeType->args.size() - 1/*closure*/ == argNodes.size());
-		for (size_t i = 0; i < argNodes.size(); i++) {
-			Operation * argOp = compileOp(scope, argNodes[i]);
+		for (int i = 0; i < (int)argNodes.size(); i++) {
+			Operation * argOp = compileOp(scope, argNodes[argNodes.size() - 1 - i]);
 			argOp = convertValueToType(scope, argOp, nameOp->func->funcNativeType->args[i+1].type);
 			if (!argOp) {
 				YO_ASSERT(isError());
@@ -2259,6 +2262,9 @@ YoProgCompiler::Operation * YoProgCompiler::compileAssign(Scope * scope, YoParse
 		else if (!left->stackValue->isMutable) {
 			setError(ERROR_MUTABLE_REQUIRED, node, "Variable %s is not mutable", left->stackValue->name.c_str());
 			return NULL;
+		}
+		else{
+			left->stackValue->isChanged = true;
 		}
 		YO_ASSERT(left->type && left->stackValue && left->stackValue->type && right->type);
 		// if (left->stackValue->type->etype == TYPE_UNKNOWN_YET) {

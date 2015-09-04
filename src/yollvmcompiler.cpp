@@ -447,14 +447,22 @@ llvm::Value * YoLLVMCompiler::compileOp(FuncParams * func, YoProgCompiler::Scope
 		YO_ASSERT(progOp->ops.size() == 0);
 		return funcs[progOp->func->ext.index];
 
-	case YoProgCompiler::OP_LOAD:
+	case YoProgCompiler::OP_LOAD: {
 		YO_ASSERT(progOp->ops.size() == 1);
-		srcPtr = compileOp(func, progScope, progOp->ops[0]);
+		YoProgCompiler::Operation * op = progOp->ops[0];
+		srcPtr = compileOp(func, progScope, op);
 		if (!srcPtr) {
 			YO_ASSERT(isError());
 			return NULL;
 		}
+		if (op->eop == YoProgCompiler::OP_STACK_VALUE_PTR) {
+			YO_ASSERT(srcPtr == (*func->stackValues)[op->stackValue->ext.index]);
+			if (op->stackValue->isArg && !op->stackValue->isChanged) {
+				return (*func->argValues)[op->stackValue->ext.index];
+			}
+		}
 		return func->builder->CreateLoad(srcPtr);
+	}
 
 	case YoProgCompiler::OP_STORE_VALUE:
 	case YoProgCompiler::OP_STORE_PTR:
@@ -625,11 +633,13 @@ bool YoLLVMCompiler::compileFuncBody(ModuleParams * module, YoProgCompiler::Func
 	builder.SetInsertPoint(bb);
 
 	std::vector<AllocaInst*> stackValues;
+	std::vector<llvm::Value*> argValues;
 	
 	FuncParams funcParams;
 	funcParams.module = module;
 	funcParams.builder = &builder;
 	funcParams.stackValues = &stackValues;
+	funcParams.argValues = &argValues;
 	funcParams.llvmFunc = func;
 
 	int i;
@@ -644,8 +654,11 @@ bool YoLLVMCompiler::compileFuncBody(ModuleParams * module, YoProgCompiler::Func
 		stackValues.push_back(allocaInst);
 
 		if (i < progFunc->funcNativeType->args.size()) {
-			// Store the initial value into the alloca.
-			builder.CreateStore(funcAI, allocaInst);
+			YO_ASSERT(stackValue->isArg);
+			argValues.push_back(funcAI);
+			if (stackValue->isChanged) {
+				builder.CreateStore(funcAI, allocaInst);
+			}
 			++funcAI;
 		}
 	}

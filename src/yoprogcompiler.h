@@ -179,8 +179,10 @@ public:
 	public:
 
 		Type * type;
+		bool isArg;
 		bool isMutable;
 		bool isInitialized;
+		bool isChanged;
 		bool isUsed;
 		bool isTemp;
 		// bool isClosure;

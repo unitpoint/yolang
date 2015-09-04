@@ -57,6 +57,7 @@ protected:
 	{
 		ModuleParams * module;
 		std::vector<llvm::AllocaInst*> * stackValues;
+		std::vector<llvm::Value*> * argValues;
 		llvm::IRBuilder<> * builder;
 		llvm::Function * llvmFunc;
 	};

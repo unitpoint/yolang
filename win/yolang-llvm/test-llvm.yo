@@ -10,7 +10,7 @@ func test(i, j int) int {
 
 func main() int32 {
 	
-	let jj = test(10, 7)
+	let jj = test(100000, 80000)
 
 	type TestBytes class {
 		a, b byte
@@ -78,5 +78,6 @@ func main() int32 {
 	v = 5
 	&v = 8
 	*/
-	return (arr2[5][1] + j + f()) as int32
+	let k = 5
+	return (arr2[k][1] + j + f() + jj) as int32
 }
