@@ -65,6 +65,8 @@ protected:
 	// llvm::IRBuilder<> * builder;
 	// llvm::Module * module;
 	std::vector<llvm::Function*> funcs;
+	std::vector<YoProgCompiler::Function*> progFuncs;
+
 	std::vector<llvm::Type*> types;
 	// llvm::ExecutionEngine * executionEngine;
 	// llvm::FunctionPassManager * funcPassManager;
@@ -79,7 +81,8 @@ protected:
 	llvm::Instruction::BinaryOps getBinOp(YoProgCompiler::EOperation progOp, bool isFloat);
 
 	bool compileModule(ModuleParams*);
-	llvm::Function * compileFunc(ModuleParams*, YoProgCompiler::Function*);
+	llvm::Function * compileDeclFunc(ModuleParams*, YoProgCompiler::Function*);
+	bool compileFuncBody(ModuleParams*, YoProgCompiler::Function*, llvm::Function*);
 	llvm::AllocaInst * allocaVar(FuncParams*, YoProgCompiler::Scope*, YoProgCompiler::StackValue*);
 	llvm::Value * compileOp(FuncParams*, YoProgCompiler::Scope*, YoProgCompiler::Operation*);
 	llvm::Value * compileCall(FuncParams*, YoProgCompiler::Scope*, YoProgCompiler::Operation*);

@@ -16,6 +16,7 @@ public:
 	{
 		ERROR_NOTHING,
 		ERROR_UNREACHABLE,
+		ERROR_VAR_DUPLICATED,
 		ERROR_VAR_NOT_USED,
 		ERROR_VAR_NOT_INITIALIZED,
 		ERROR_NAME_NOT_FOUND,
@@ -27,6 +28,7 @@ public:
 		ERROR_TYPE_DUPLICATED,
 		ERROR_FIELD_DUPLICATED,
 		ERROR_MUTABLE_REQUIRED,
+		ERROR_CALL_ARGS_NUMBER,
 	};
 
 	enum EType
@@ -246,6 +248,8 @@ public:
 		NAME_UNKNOWN,
 		NAME_STACKVALUE,
 		NAME_CLOSUREVALUE,
+		NAME_TYPE,
+		NAME_MODULE_FUNCTION,
 	};
 
 	struct NameInfo
@@ -260,6 +264,8 @@ public:
 			} closureValue;
 
 			StackValue * stackValue;
+			Type * type;
+			Function * func;
 		};
 		// NameInfo();
 	};
@@ -308,7 +314,8 @@ public:
 		// OP_WRITE_GLOBAL,
 
 		OP_RETURN,
-		OP_CALL,
+		OP_CALL_CLOSURE,
+		OP_CALL_FUNC,
 		OP_BIN_ADD,
 		// OP_SUB_FUNC,
 
@@ -340,9 +347,7 @@ public:
 				// float fval32;
 			} constFloat;
 
-			struct {
-				Function * func;
-			} func;
+			Function * func;
 
 			struct {
 				StructType * parent;
@@ -365,7 +370,12 @@ public:
 			struct {
 				FuncDataType * funcDataType;
 				int args;
-			} call;
+			} callClosure;
+
+			struct {
+				Function * func;
+				int args;
+			} callFunc;
 		};
 
 		Operation(EOperation, YoParserNode*);
@@ -393,6 +403,8 @@ public:
 	bool isError() const;
 
 	bool run();
+	void dump();
+	void dumpError();
 
 	bool findName(NameInfo& out, Scope*, const std::string&);
 	bool isValueOp(Operation * op);

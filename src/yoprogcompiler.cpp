@@ -325,6 +325,527 @@ bool YoProgCompiler::run()
 	return false;
 }
 
+void YoProgCompiler::dump()
+{
+	struct Lib {
+		YoProgCompiler * self;
+
+		void printDepth(int depth)
+		{
+			for (int i = 0; i < depth; i++) {
+				printf("  ");
+			}
+		}
+
+		const char * getBinOpName(EOperation eop, bool isFloat)
+		{
+			switch (eop) {
+			case OP_BIN_ADD:
+				return isFloat ? "fadd" : "add";
+			}
+			return "<unknown>";
+		}
+
+		void dumpCall(Function * func, Operation * op, int depth)
+		{
+			YO_ASSERT((op->eop == OP_CALL_CLOSURE || op->eop == OP_CALL_FUNC) && op->ops.size() >= 2);
+
+			// YoProgCompiler::FuncDataType * funcDataType = op->call.funcDataType;
+			int i, startArg = op->ops.size() - (op->eop == OP_CALL_CLOSURE ? op->callClosure.args : op->callFunc.args) - 2;
+
+			if (0 < startArg) {
+				printDepth(depth); printf("begin prepare CALL\n");
+				for (i = 0; i < startArg; i++) {
+					dumpOp(func, op->ops[i], depth + 1);
+				}
+				printDepth(depth); printf("end prepare CALL\n");
+			}
+
+			printDepth(depth); printf("begin CALL\n");
+			dumpOp(func, op->ops[startArg + 0], depth + 1);
+			dumpOp(func, op->ops[startArg + 1], depth + 1);
+			for (i = startArg + 2; i < (int)op->ops.size(); i++) {
+				dumpOp(func, op->ops[i], depth + 1);
+			}
+			printDepth(depth); printf("end CALL ");
+			dumpType(op->type);
+			printf("\n");
+		}
+
+		int indexOf(Function * func, StackValue * var)
+		{
+			std::vector<StackValue*>::iterator it = std::find(func->stackValues.begin(), func->stackValues.end(), var);
+			if (it != func->stackValues.end()) {
+				return it - func->stackValues.begin();
+			}
+			return -1;
+		}
+
+		void dumpOp(Function * func, Operation * op, int depth)
+		{
+			int i;
+			const char * name;
+			switch (op->eop) {
+			case YoProgCompiler::OP_CONST_NULL:
+				YO_ASSERT(op->ops.size() == 0);
+				printDepth(depth); 
+				printf("NULL");
+				dumpType(op->type);
+				printf("\n");
+				return;
+
+			case YoProgCompiler::OP_CONST_INT:
+				YO_ASSERT(op->ops.size() == 0);
+				printDepth(depth);
+				printf("%llu ", op->constInt.val);
+				dumpType(op->type);
+				printf("\n");
+				return;
+
+			case YoProgCompiler::OP_CONST_FLOAT:
+				YO_ASSERT(op->ops.size() == 0);
+				printDepth(depth);
+				printf("%lf ", op->constFloat.fval);
+				dumpType(op->type);
+				printf("\n");
+				return;
+
+			case YoProgCompiler::OP_BIN_ADD:
+				YO_ASSERT(op->ops.size() == 2);
+				YO_ASSERT(op->type && op->ops[0]->type && op->ops[1]->type);
+				YO_ASSERT(op->ops[0]->type->etype == op->ops[1]->type->etype);
+				printDepth(depth);
+				name = getBinOpName(op->eop, op->ops[0]->type->isFloat());
+				// printDepth(depth); printf("begin OP_BIN_ADD %s\n", name);
+				dumpOp(func, op->ops[0], depth + 1);
+				dumpOp(func, op->ops[1], depth + 1);
+				printDepth(depth); printf("OP_BIN_ADD %s ", name);
+				dumpType(op->type);
+				printf("\n");
+				return;
+
+			case YoProgCompiler::OP_RETURN:
+				if (op->ops.size() > 0) {
+					YO_ASSERT(op->ops.size() == 1);
+					dumpOp(func, op->ops[0], depth + 1);
+					printDepth(depth); printf("OP_RETURN ");
+					dumpType(op->type);
+					printf("\n");
+					return;
+				}
+				printDepth(depth); printf("OP_RETURN\n");
+				return;
+
+			case YoProgCompiler::OP_CALL_CLOSURE:
+			case YoProgCompiler::OP_CALL_FUNC:
+				dumpCall(func, op, depth);
+				return;
+
+			case YoProgCompiler::OP_STACK_VALUE_PTR:
+				for (i = 0; i < (int)op->ops.size(); i++) {
+					dumpOp(func, op->ops[i], depth + 1);
+				}
+				printDepth(depth);
+				printf("OP_STACK_VALUE_PTR: %s#%d ", op->stackValue->name.c_str(), indexOf(func, op->stackValue));
+				dumpType(op->stackValue->type);
+				printf("\n");
+				return;
+
+			case YoProgCompiler::OP_STRUCT_ELEMENT_PTR:
+				YO_ASSERT(op->ops.size() == 1);
+				dumpOp(func, op->ops[0], depth + 1);
+				printDepth(depth); printf("OP_STRUCT_ELEMENT_PTR: %d ", op->structElementIndex);
+				dumpType(op->type);
+				printf("\n");
+				return;
+
+			case YoProgCompiler::OP_ELEMENT_PTR: {
+				YO_ASSERT(op->ops.size() == 2);
+				// printDepth(depth); printf("begin OP_ELEMENT_PTR\n");
+				dumpOp(func, op->ops[0], depth + 1);
+				dumpOp(func, op->ops[1], depth + 1);
+				printDepth(depth); printf("OP_ELEMENT_PTR ");
+				dumpType(op->type);
+				printf("\n");
+				return;
+			}
+			case YoProgCompiler::OP_FUNC:
+				YO_ASSERT(op->ops.size() == 0);
+				printDepth(depth); printf("OP_FUNC %s ", op->func->name.c_str());
+				dumpType(op->func->funcNativeType);
+				printf("\n");
+				return;
+
+			case YoProgCompiler::OP_LOAD:
+				YO_ASSERT(op->ops.size() == 1);
+				dumpOp(func, op->ops[0], depth + 1);
+				printDepth(depth); printf("OP_LOAD ");
+				dumpType(op->type);
+				printf("\n");
+				return;
+
+			case YoProgCompiler::OP_STORE_VALUE:
+				YO_ASSERT(op->ops.size() == 2);
+				// printDepth(depth); printf("begin OP_STORE_VALUE\n");
+				dumpOp(func, op->ops[0], depth + 1);
+				dumpOp(func, op->ops[1], depth + 1);
+				printDepth(depth); printf("OP_STORE_VALUE ");
+				dumpType(op->type);
+				printf("\n");
+				return;
+
+			case YoProgCompiler::OP_STORE_PTR:
+				YO_ASSERT(op->ops.size() == 2);
+				// printDepth(depth); printf("begin OP_STORE_PTR\n");
+				dumpOp(func, op->ops[0], depth + 1);
+				dumpOp(func, op->ops[1], depth + 1);
+				printDepth(depth); printf("OP_STORE_PTR ");
+				dumpType(op->type);
+				printf("\n");
+				return;
+
+			case YoProgCompiler::OP_STACK_VALUE_MEMZERO:
+				printDepth(depth); printf("OP_STACK_VALUE_MEMZERO: %s#%d ", op->stackValue->name.c_str(), indexOf(func, op->stackValue));
+				dumpType(op->stackValue->type);
+				printf("\n");
+				return;
+
+			case YoProgCompiler::OP_CAST_TRUNC:
+				YO_ASSERT(op->ops.size() == 1);
+				dumpOp(func, op->ops[0], depth + 1);
+				printDepth(depth); printf("OP_CAST_TRUNC ");
+				dumpType(op->type);
+				printf("\n");
+				return;
+
+			case YoProgCompiler::OP_CAST_ZERO_EXT:
+				YO_ASSERT(op->ops.size() == 1);
+				dumpOp(func, op->ops[0], depth + 1);
+				printDepth(depth); printf("OP_CAST_ZERO_EXT ");
+				dumpType(op->type);
+				printf("\n");
+				return;
+
+			case YoProgCompiler::OP_CAST_SIGN_EXT:
+				YO_ASSERT(op->ops.size() == 1);
+				dumpOp(func, op->ops[0], depth + 1);
+				printDepth(depth); printf("OP_CAST_SIGN_EXT ");
+				dumpType(op->type);
+				printf("\n");
+				return;
+
+			case YoProgCompiler::OP_CAST_SI_TO_FP:
+				YO_ASSERT(op->ops.size() == 1);
+				dumpOp(func, op->ops[0], depth + 1);
+				printDepth(depth); printf("OP_CAST_SI_TO_FP ");
+				dumpType(op->type);
+				printf("\n");
+				return;
+
+			case YoProgCompiler::OP_CAST_UI_TO_FP:
+				YO_ASSERT(op->ops.size() == 1);
+				dumpOp(func, op->ops[0], depth + 1);
+				printDepth(depth); printf("OP_CAST_UI_TO_FP ");
+				dumpType(op->type);
+				printf("\n");
+				return;
+
+			case YoProgCompiler::OP_CAST_FP_TO_SI:
+				YO_ASSERT(op->ops.size() == 1);
+				dumpOp(func, op->ops[0], depth + 1);
+				printDepth(depth); printf("OP_CAST_FP_TO_SI ");
+				dumpType(op->type);
+				printf("\n");
+				return;
+
+			case YoProgCompiler::OP_CAST_FP_TO_UI:
+				YO_ASSERT(op->ops.size() == 1);
+				dumpOp(func, op->ops[0], depth + 1);
+				printDepth(depth); printf("OP_CAST_FP_TO_UI ");
+				dumpType(op->type);
+				printf("\n");
+				return;
+
+			case YoProgCompiler::OP_CAST_FP_TRUNC:
+				YO_ASSERT(op->ops.size() == 1);
+				dumpOp(func, op->ops[0], depth + 1);
+				printDepth(depth); printf("OP_CAST_FP_TRUNC ");
+				dumpType(op->type);
+				printf("\n");
+				return;
+
+			case YoProgCompiler::OP_CAST_FP_EXT:
+				YO_ASSERT(op->ops.size() == 1);
+				dumpOp(func, op->ops[0], depth + 1);
+				printDepth(depth); printf("OP_CAST_FP_EXT ");
+				dumpType(op->type);
+				printf("\n");
+				return;
+
+			case YoProgCompiler::OP_CAST_PTR:
+				YO_ASSERT(op->ops.size() == 1);
+				dumpOp(func, op->ops[0], depth + 1);
+				printDepth(depth); printf("OP_CAST_PTR ");
+				dumpType(op->type);
+				printf("\n");
+				return;
+
+			case YoProgCompiler::OP_SIZEOF:
+				YO_ASSERT(op->ops.size() == 1);
+				dumpOp(func, op->ops[0], depth + 1);
+				printDepth(depth); printf("OP_SIZEOF ");
+				dumpType(op->type);
+				printf("\n");
+				return;
+
+			case YoProgCompiler::OP_TYPE:
+				YO_ASSERT(op->ops.size() == 0);
+				printDepth(depth); printf("OP_TYPE ");
+				dumpType(op->type);
+				printf("\n");
+				return;
+
+			case YoProgCompiler::OP_TYPE_STRUCT_ELEMENT:
+				YO_ASSERT(op->ops.size() == 0);
+				printDepth(depth + 1); printf("TYPE ");
+				dumpType(op->typeStructElement.parent);
+				printf("\n");
+				printDepth(depth); printf("OP_TYPE_STRUCT_ELEMENT: %d ", op->typeStructElement.index);
+				dumpType(op->type);
+				printf("\n");
+				return;
+
+			default:
+				printDepth(depth); printf("<unknown> %d\n", (int)op->eop);
+				return;
+			}
+		}
+
+		void dumpFunc(Function * func)
+		{
+			printf("begin FUNC %s: %s\n\n", func->name.c_str(), func->funcNativeType->name.c_str());
+
+			int i;
+			for (i = 0; i < (int)func->stackValues.size(); i++) {
+				StackValue * var = func->stackValues[i];
+				printf("  var %s%s#%d ", var->isMutable ? "mut " : "", var->name.c_str(), i);
+				dumpType(var->type);
+				printf("\n");
+			}
+			if (i > 0) {
+				printf("\n");
+			}
+
+			for (i = 0; i < (int)func->ops.size(); i++) {
+				Operation * op = func->ops[i];
+				dumpOp(func, op, 1);
+			}
+			printf("end FUNC\n\n");
+		}
+
+		void dumpModule(Module * module)
+		{
+			printf("begin MODULE %s\n\n", module->name.c_str());
+
+			std::map<std::string, Type*>::iterator tit = module->types.begin();
+			for (; tit != module->types.end(); ++tit) {
+				dumpDeclType(tit->second);
+			}
+			if (module->types.size() > 0) {
+				printf("\n");
+			}
+
+			for (int i = 0; i < (int)module->funcs.size(); i++) {
+				dumpFunc(module->funcs[i]);
+			}
+			printf("end MODULE\n\n");
+		}
+
+		void dumpType(Type * type)
+		{
+			if (!type) {
+				printf("<NULL>");
+				return;
+			}
+			switch (type->etype) {
+			case TYPE_UNKNOWN_YET:
+				printf("?");
+				break;
+
+			case TYPE_VOID:
+				printf("void");
+				break;
+
+			case TYPE_BOOL:
+				printf("bool");
+				break;
+
+			case TYPE_INT8:
+				printf("int8");
+				break;
+
+			case TYPE_INT16:
+				printf("int16");
+				break;
+
+			case TYPE_INT32:
+				printf("int32");
+				break;
+
+			case TYPE_INT64:
+				printf("int64");
+				break;
+
+			case TYPE_UINT8:
+				printf("uint8");
+				break;
+
+			case TYPE_UINT16:
+				printf("uint16");
+				break;
+
+			case TYPE_UINT32:
+				printf("uint32");
+				break;
+
+			case TYPE_UINT64:
+				printf("uint64");
+				break;
+
+			case TYPE_FLOAT32:
+				printf("float32");
+				break;
+
+			case TYPE_FLOAT64:
+				printf("float64");
+				break;
+
+			case TYPE_STRING:
+				printf("string");
+				break;
+
+			case TYPE_CLASS:
+				printf("class");
+				// no break
+
+			case TYPE_STRUCT: {
+				YO_ASSERT(dynamic_cast<StructType*>(type));
+				StructType * structType = (StructType*)type;
+				if (structType->isPacked) {
+					printf("packed");
+				}
+				printf("{");
+				for (int i = 0; i < (int)structType->types.size(); i++) {
+					if (i > 0) {
+						printf(",");
+					}
+					dumpType(structType->types[i]);
+				}
+				printf("}");
+				break;
+			}
+			case TYPE_FUNC_NATIVE: {
+				YO_ASSERT(dynamic_cast<FuncNativeType*>(type));
+				FuncNativeType * funcType = (FuncNativeType*)type;
+				printf("func(");
+				for (int i = 0; i < (int)funcType->args.size(); i++) {
+					if (i > 0) {
+						printf(",");
+					}
+					FuncNativeType::Arg& arg = funcType->args[i];
+					if (arg.isMutable) {
+						printf("mut ");
+					}
+					printf("%s ", arg.name.c_str());
+					dumpType(arg.type);
+				}
+				printf(")");
+				dumpType(funcType->resType);
+				break;
+			}
+			case TYPE_FUNC_DATA:
+				YO_ASSERT(dynamic_cast<FuncDataType*>(type));
+				printf("funcdata{");
+				dumpType(((FuncDataType*)type)->funcNativeType);
+				printf("}");
+				break;
+
+			case TYPE_PTR:
+				YO_ASSERT(dynamic_cast<SubType*>(type));
+				printf("*");
+				dumpType(((SubType*)type)->subType);
+				break;
+
+			case TYPE_ARRAY:
+				YO_ASSERT(dynamic_cast<ArrayType*>(type));
+				printf("[%d]", ((ArrayType*)type)->size);
+				dumpType(((ArrayType*)type)->subType);
+				break;
+
+			case TYPE_MUT:
+				YO_ASSERT(dynamic_cast<SubType*>(type));
+				printf("mut ");
+				dumpType(((SubType*)type)->subType);
+				break;
+
+			case TYPE_CONST:
+				YO_ASSERT(dynamic_cast<SubType*>(type));
+				printf("const ");
+				dumpType(((SubType*)type)->subType);
+				break;
+			}
+		}
+
+		void dumpDeclType(Type * type)
+		{
+			switch (type->etype) {
+			case TYPE_STRUCT:
+			case TYPE_CLASS:
+				printf("TYPE %s ", type->name.c_str());
+				dumpType(type);
+				printf("\n");
+				break;
+
+			default:
+				printf("TYPE %s\n", type->name.c_str());
+				break;
+			}
+		}
+
+	} lib = { this };
+
+	if (isError()) {
+		dumpError();
+		return;
+	}
+
+	std::map<std::string, Type*>::iterator tit = globalTypes.begin();
+	for (; tit != globalTypes.end(); ++tit) {
+		lib.dumpDeclType(tit->second);
+	}
+	if (globalTypes.size() > 0) {
+		printf("-------------------\n");
+	}
+	
+	int i;
+	for (i = 0; i < (int)modules.size(); i++) {
+		lib.dumpModule(modules[i]);
+	}
+}
+
+void YoProgCompiler::dumpError()
+{
+	if (isError()) {
+		printf("Error: %s\n", errorMsg.c_str());
+		if (errorNode) {
+			parser->dumpErrorLine(errorNode->token);
+		}
+	}
+	else{
+		printf("<NO ERROR>\n");
+	}
+}
+
 void YoProgCompiler::collectNodesInReversList(std::vector<YoParserNode*>& out, YoParserNode * node)
 {
 	int count = 0;
@@ -514,7 +1035,7 @@ YoProgCompiler::FuncDataType * YoProgCompiler::getFuncDataType(FuncNativeType * 
 	Type * funcNativePtr = getPtrType(funcNativeType);
 
 	std::ostringstream buf;
-	buf << "func{" << funcNativePtr->name << "," << closureStructPtr->name << "}";
+	buf << "funcdata{" << funcNativePtr->name << "," << closureStructPtr->name << "}";
 	std::string name = buf.str();
 	std::map<std::string, Type*>::iterator it = globalTypes.find(name);
 	if (it == globalTypes.end()) {
@@ -587,8 +1108,12 @@ YoProgCompiler::FuncNativeType * YoProgCompiler::getFuncNativeType(Scope * scope
 			YO_ASSERT(isError());
 			return NULL;
 		}
+		if (argType->etype == TYPE_VOID) {
+			setError(ERROR_TYPE, argNode->data.declVar.type, "Arg should not be void");
+			return NULL;
+		}
 		bool isMutable = argNode->data.declVar.isMutable;
-		for (size_t i = 0; i < nameArgs.size(); i++) {
+		for (int i = (int)nameArgs.size()-1; i >= 0; i--) {
 			// if (argTypes.size() > 0) {
 			buf << ",";
 			// }
@@ -599,7 +1124,14 @@ YoProgCompiler::FuncNativeType * YoProgCompiler::getFuncNativeType(Scope * scope
 			// argTypes.push_back(argType);
 			YO_ASSERT(nameArgs[i]->type == YO_NODE_NAME);
 			// argNames.push_back(getTokenStr(nameArgs[i]));
-			funcType->args.push_back(FuncNativeType::Arg(argType, getTokenStr(nameArgs[i]), isMutable));
+			std::string argName = getTokenStr(nameArgs[i]);
+			for (int j = 0; j < (int)funcType->args.size(); j++) {
+				if (funcType->args[j].name == argName) {
+					setError(ERROR_VAR_DUPLICATED, nameArgs[i], "Arg %s is already exist", argName.c_str());
+					return NULL;
+				}
+			}
+			funcType->args.push_back(FuncNativeType::Arg(argType, argName, isMutable));
 		}
 	}
 	buf << ")";
@@ -888,6 +1420,24 @@ YoProgCompiler::Function * YoProgCompiler::compileFunc(Scope * scope, YoParserNo
 	FuncNativeType * funcNativeType = getFuncNativeType(scope, node);
 	Function * func = new Function(scope, funcNativeType, name, node);
 	getModule(scope)->funcs.push_back(func);
+
+	for (int i = 0; i < (int)funcNativeType->args.size(); i++) {
+		FuncNativeType::Arg& arg = funcNativeType->args[i];
+		for (int i = 0; i < (int)func->stackValues.size(); i++) {
+			if (func->stackValues[i]->name == arg.name) {
+				setError(ERROR_VAR_DUPLICATED, node, "Arg %s is already exist", arg.name.c_str());
+				return NULL;
+			}
+		}
+		if (arg.type->etype == TYPE_VOID) {
+			setError(ERROR_TYPE, node, "Variable %s should not be void", arg.name.c_str());
+			return NULL;
+		}
+
+		StackValue * stackValue = new StackValue(arg.type, arg.name, node);
+		stackValue->isMutable = arg.isMutable;
+		func->stackValues.push_back(stackValue);
+	}
 	
 	if (!compileFuncBody(func, node->data.func.body)) {
 		YO_ASSERT(isError());
@@ -1006,7 +1556,20 @@ YoProgCompiler::StackValue * YoProgCompiler::compileDeclVar(Scope * scope, YoPar
 	}
 
 	YO_ASSERT(node->data.declVar.name && node->data.declVar.name->type == YO_NODE_NAME);
-	StackValue * stackValue = new StackValue(type, getTokenStr(node->data.declVar.name), node);
+
+	std::string name = getTokenStr(node->data.declVar.name);
+	for (int i = 0; i < (int)scope->stackValues.size(); i++) {
+		if (scope->stackValues[i]->name == name) {
+			setError(ERROR_VAR_DUPLICATED, node->data.declVar.name, "Variable %s is already exist", name.c_str());
+			return NULL;
+		}
+	}
+	if (type->etype == TYPE_VOID) {
+		setError(ERROR_TYPE, node->data.declVar.name, "Variable %s should not be void", name.c_str());
+		return NULL;
+	}
+
+	StackValue * stackValue = new StackValue(type, name, node->data.declVar.name);
 	stackValue->isMutable = node->data.declVar.isMutable;
 	scope->stackValues.push_back(stackValue);
 	if (scope->escope == SCOPE_BLOCK) {
@@ -1022,9 +1585,9 @@ bool YoProgCompiler::findName(NameInfo& out, Scope * scope, const std::string& n
 			break;
 		}
 		YO_ASSERT(scope->escope == SCOPE_FUNCTION);
-		std::vector<StackValue*>::reverse_iterator it = scope->stackValues.rbegin();
-		for (; it != scope->stackValues.rend(); ++it) {
-			StackValue * stackValue = *it;
+		std::vector<StackValue*>::reverse_iterator vit = scope->stackValues.rbegin();
+		for (; vit != scope->stackValues.rend(); ++vit) {
+			StackValue * stackValue = *vit;
 			if (stackValue->isTemp) {
 				continue;
 			}
@@ -1042,7 +1605,33 @@ bool YoProgCompiler::findName(NameInfo& out, Scope * scope, const std::string& n
 				return true;
 			}
 		}
+		std::map<std::string, Type*>::iterator tit = scope->types.find(name);
+		if (tit != scope->types.end()) {
+			out.ename = NAME_TYPE;
+			out.scope = scope;
+			out.type = tit->second;
+			return true;
+		}
 		scope = scope->parent;
+	}
+	YO_ASSERT(scope->escope == SCOPE_MODULE && dynamic_cast<Module*>(scope));
+	Module * module = (Module*)scope;
+	std::vector<Function*>::iterator fit = module->funcs.begin();
+	for (; fit != module->funcs.end(); ++fit) {
+		Function * func = *fit;
+		if (func->name == name) {
+			out.ename = NAME_MODULE_FUNCTION;
+			out.scope = scope;
+			out.func = func;
+			return true;
+		}
+	}
+	std::map<std::string, Type*>::iterator tit = scope->types.find(name);
+	if (tit != scope->types.end()) {
+		out.ename = NAME_TYPE;
+		out.scope = scope;
+		out.type = tit->second;
+		return true;
 	}
 	out.ename = NAME_UNKNOWN;
 	out.scope = NULL;
@@ -1101,12 +1690,6 @@ YoProgCompiler::Operation * YoProgCompiler::compileOp(Scope * scope, YoParserNod
 	case YO_NODE_NAME:
 		name = getTokenStr(node);
 		if (!findName(nameInfo, scope, name)) {
-			Type * type = getParserType(scope, node);
-			if (type) {
-				op = newOperation(OP_TYPE, node);
-				op->type = type;
-				return op;
-			}
 			setError(ERROR_NAME_NOT_FOUND, node, "Name not found: %s", name.c_str());
 			return NULL;
 		}
@@ -1119,6 +1702,17 @@ YoProgCompiler::Operation * YoProgCompiler::compileOp(Scope * scope, YoParserNod
 		case NAME_CLOSUREVALUE:
 			setError(ERROR_UNREACHABLE, node, "Closure value is not supported yet, error name: %s", name.c_str());
 			return NULL;
+
+		case NAME_TYPE:
+			op = newOperation(OP_TYPE, node);
+			op->type = nameInfo.type;
+			return op;
+
+		case NAME_MODULE_FUNCTION:
+			op = newOperation(OP_FUNC, node);
+			op->func = nameInfo.func;
+			op->type = getPtrType(nameInfo.func->funcNativeType);
+			return op;
 		}
 		setError(ERROR_UNREACHABLE, node, "Error name: %s", name.c_str());
 		return NULL;
@@ -1320,8 +1914,8 @@ YoProgCompiler::Operation * YoProgCompiler::compileCall(Scope * scope, YoParserN
 
 		FuncDataType * funcDataType = (FuncDataType*)nameOp->stackValue->type;
 
-		Operation * op = newOperation(OP_CALL, node);
-		op->call.funcDataType = funcDataType;
+		Operation * op = newOperation(OP_CALL_CLOSURE, node);
+		op->callClosure.funcDataType = funcDataType;
 		op->type = funcDataType->funcNativeType->resType;
 		// op->ops.push_back(newOperation(OP_NOP, node));
 		op->ops.push_back(funcElemPtr);
@@ -1329,12 +1923,54 @@ YoProgCompiler::Operation * YoProgCompiler::compileCall(Scope * scope, YoParserN
 
 		std::vector<YoParserNode*> argNodes;
 		collectNodesInReversList(argNodes, node->data.call.args);
-		op->call.args = argNodes.size();
+		op->callClosure.args = argNodes.size();
+
+		if (op->callClosure.args != funcDataType->funcNativeType->args.size()-1) {
+			setError(ERROR_CALL_ARGS_NUMBER, node, "Error call args number %d, required %d", op->callClosure.args, funcDataType->funcNativeType->args.size()-1);
+			return NULL;
+		}
 
 		YO_ASSERT(funcDataType->funcNativeType->args.size()-1/*closure*/ == argNodes.size());
 		for (size_t i = 0; i < argNodes.size(); i++) {
 			Operation * argOp = compileOp(scope, argNodes[i]);
 			argOp = convertValueToType(scope, argOp, funcDataType->funcNativeType->args[i].type);
+			if (!argOp) {
+				YO_ASSERT(isError());
+				return NULL;
+			}
+			op->ops.push_back(argOp);
+		}
+		return op;
+	}
+	if (nameOp->eop == OP_FUNC) {
+		Operation * nullOp = newOperation(OP_CONST_NULL, node);
+		nullOp->type = getVoidPtrType();
+		nullOp = convertPtrToType(scope, nullOp, nameOp->func->funcNativeType->args[0].type);
+		if (!nullOp) {
+			YO_ASSERT(isError());
+			return NULL;
+		}
+
+		Operation * op = newOperation(OP_CALL_FUNC, node);
+		op->callFunc.func = nameOp->func;
+		op->type = nameOp->func->funcNativeType->resType;
+		// op->ops.push_back(newOperation(OP_NOP, node));
+		op->ops.push_back(nameOp);
+		op->ops.push_back(nullOp);
+
+		std::vector<YoParserNode*> argNodes;
+		collectNodesInReversList(argNodes, node->data.call.args);
+		op->callFunc.args = argNodes.size();
+
+		if (op->callFunc.args != nameOp->func->funcNativeType->args.size()-1) {
+			setError(ERROR_CALL_ARGS_NUMBER, node, "Error call args number %d, required %d", op->callClosure.args, nameOp->func->funcNativeType->args.size()-1);
+			return NULL;
+		}
+
+		YO_ASSERT(nameOp->func->funcNativeType->args.size() - 1/*closure*/ == argNodes.size());
+		for (size_t i = 0; i < argNodes.size(); i++) {
+			Operation * argOp = compileOp(scope, argNodes[i]);
+			argOp = convertValueToType(scope, argOp, nameOp->func->funcNativeType->args[i+1].type);
 			if (!argOp) {
 				YO_ASSERT(isError());
 				return NULL;
@@ -1433,7 +2069,7 @@ YoProgCompiler::Operation * YoProgCompiler::compileSubFunc(Scope * scope, YoPars
 	}
 
 	Operation * funcOp = newOperation(OP_FUNC, node);
-	funcOp->func.func = func;
+	funcOp->func = func;
 	funcOp->type = getPtrType(func->funcNativeType);
 
 	Operation * storeOp = newOperation(OP_STORE_VALUE, node);
@@ -1627,8 +2263,15 @@ YoProgCompiler::Operation * YoProgCompiler::compileAssign(Scope * scope, YoParse
 		YO_ASSERT(left->type && left->stackValue && left->stackValue->type && right->type);
 		// if (left->stackValue->type->etype == TYPE_UNKNOWN_YET) {
 		if (matchTypeTemplate(scope, left->stackValue->type, getValueType(right))) {
-			// left->stackValue->type = getValueType(right);
+			if (left->stackValue->type->etype == TYPE_VOID) {
+				setError(ERROR_TYPE, left->stackValue->parserNode, "Variable %s should not be void", left->stackValue->name.c_str());
+				return NULL;
+			}
 			left->type = getPtrType(left->stackValue->type);
+		}
+		if (left->type->isUnknownYet) {
+			setError(ERROR_TYPE, left->stackValue->parserNode, "Variable %s has unknown type", left->stackValue->name.c_str());
+			return NULL;
 		}
 		// no break
 
@@ -1840,6 +2483,10 @@ bool YoProgCompiler::compileStmtReturn(Scope * scope, YoParserNode * node)
 	Operation * op = newOperation(OP_RETURN, node);
 	if (node->data.stmtReturn.node) {
 		Operation * value = compileValue(scope, node->data.stmtReturn.node);
+		if (!value) {
+			YO_ASSERT(isError());
+			return false;
+		}
 		Function * func = getFunction(scope);
 		if (matchTypeTemplate(scope, func->funcNativeType->resType, value->type)) {
 			updateFuncNativeType(func->funcNativeType);

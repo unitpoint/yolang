@@ -340,9 +340,17 @@ llvm::Instruction::BinaryOps YoLLVMCompiler::getBinOp(YoProgCompiler::EOperation
 bool YoLLVMCompiler::compileModule(ModuleParams * module)
 {
 	// for (int i = 0; i < (int)progModule->funcs.size(); i++) {
-	for (int i = (int)module->progModule->funcs.size() - 1; i >= 0; i--) {
+	int i, saveFuncsNumber = (int)funcs.size();
+	for (i = (int)module->progModule->funcs.size() - 1; i >= 0; i--) {
 		YoProgCompiler::Function * progFunc = module->progModule->funcs[i];
-		if (!compileFunc(module, progFunc)) {
+		if (!compileDeclFunc(module, progFunc)) {
+			return false;
+		}
+	}
+	for (i = saveFuncsNumber; i < (int)funcs.size(); i++) {
+		Function * func = funcs[i];
+		YoProgCompiler::Function * progFunc = progFuncs[i];
+		if (!compileFuncBody(module, progFunc, func)) {
 			return false;
 		}
 	}
@@ -400,7 +408,8 @@ llvm::Value * YoLLVMCompiler::compileOp(FuncParams * func, YoProgCompiler::Scope
 		}
 		return func->builder->CreateRetVoid();
 
-	case YoProgCompiler::OP_CALL:
+	case YoProgCompiler::OP_CALL_CLOSURE:
+	case YoProgCompiler::OP_CALL_FUNC:
 		return compileCall(func, progScope, progOp);
 
 	case YoProgCompiler::OP_STACK_VALUE_PTR:
@@ -436,7 +445,7 @@ llvm::Value * YoLLVMCompiler::compileOp(FuncParams * func, YoProgCompiler::Scope
 	}
 	case YoProgCompiler::OP_FUNC:
 		YO_ASSERT(progOp->ops.size() == 0);
-		return funcs[progOp->func.func->ext.index];
+		return funcs[progOp->func->ext.index];
 
 	case YoProgCompiler::OP_LOAD:
 		YO_ASSERT(progOp->ops.size() == 1);
@@ -521,11 +530,11 @@ llvm::Value * YoLLVMCompiler::compileOp(FuncParams * func, YoProgCompiler::Scope
 
 llvm::Value * YoLLVMCompiler::compileCall(FuncParams * func, YoProgCompiler::Scope * progScope, YoProgCompiler::Operation * progOp)
 {
-	YO_ASSERT(progOp->eop == YoProgCompiler::OP_CALL && progOp->ops.size() >= 2);
+	YO_ASSERT((progOp->eop == YoProgCompiler::OP_CALL_CLOSURE || progOp->eop == YoProgCompiler::OP_CALL_FUNC) && progOp->ops.size() >= 2);
 
-	YoProgCompiler::FuncDataType * funcDataType = progOp->call.funcDataType;
+	// YoProgCompiler::FuncDataType * funcDataType = progOp->call.funcDataType;
 	// int numArgs = funcDataType->funcNativeType->argTypes.size();
-	int i, startArg = progOp->ops.size() - progOp->call.args - 2;
+	int i, startArg = progOp->ops.size() - (progOp->eop == YoProgCompiler::OP_CALL_CLOSURE ? progOp->callClosure.args : progOp->callFunc.args) - 2;
 
 	for (i = 0; i < startArg; i++) {
 		Value * arg = compileOp(func, progScope, progOp->ops[i]);
@@ -572,7 +581,7 @@ llvm::Value * YoLLVMCompiler::compileSubFunc(llvm::IRBuilder<> * builder, std::v
 }
 */
 
-llvm::Function * YoLLVMCompiler::compileFunc(ModuleParams * module, YoProgCompiler::Function * progFunc)
+llvm::Function * YoLLVMCompiler::compileDeclFunc(ModuleParams * module, YoProgCompiler::Function * progFunc)
 {
 	switch (progFunc->parserNode->data.func.op) {
 	case T_FUNC:
@@ -596,13 +605,19 @@ llvm::Function * YoLLVMCompiler::compileFunc(ModuleParams * module, YoProgCompil
 	YO_ASSERT(func);
 	progFunc->ext.index = funcs.size();
 	funcs.push_back(func);
+	progFuncs.push_back(progFunc);
 
 	int i = 0;
 	Function::arg_iterator ait = func->arg_begin();
 	for (; i < (int)progFunc->funcNativeType->args.size(); ++ait, ++i) {
-		ait->setName(progFunc->funcNativeType->args[i].name);
+		ait->setName("#" + progFunc->funcNativeType->args[i].name);
 	}
 
+	return func;
+}
+
+bool YoLLVMCompiler::compileFuncBody(ModuleParams * module, YoProgCompiler::Function * progFunc, llvm::Function * func)
+{
 	// Create a new basic block to start insertion into.
 	BasicBlock * bb = BasicBlock::Create(*context, "entry", func);
 	
@@ -617,6 +632,8 @@ llvm::Function * YoLLVMCompiler::compileFunc(ModuleParams * module, YoProgCompil
 	funcParams.stackValues = &stackValues;
 	funcParams.llvmFunc = func;
 
+	int i;
+	Function::arg_iterator funcAI = func->arg_begin();
 	for (i = 0; i < (int)progFunc->stackValues.size(); i++) {
 		YoProgCompiler::StackValue * stackValue = progFunc->stackValues[i];
 		AllocaInst * allocaInst = allocaVar(&funcParams, progFunc, stackValue);
@@ -625,6 +642,12 @@ llvm::Function * YoLLVMCompiler::compileFunc(ModuleParams * module, YoProgCompil
 		}
 		stackValue->ext.index = i;
 		stackValues.push_back(allocaInst);
+
+		if (i < progFunc->funcNativeType->args.size()) {
+			// Store the initial value into the alloca.
+			builder.CreateStore(funcAI, allocaInst);
+			++funcAI;
+		}
 	}
 
 	for (i = 0; i < (int)progFunc->ops.size(); i++){

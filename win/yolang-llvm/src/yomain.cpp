@@ -47,13 +47,10 @@ void main()
 		YoProgCompiler progCompiler(&parser);
 		progCompiler.run();
 		if (progCompiler.isError()) {
-			printf("\n======================\n%s\n", progCompiler.errorMsg.c_str());
-			if (progCompiler.errorNode) {
-				parser.dumpErrorLine(progCompiler.errorNode->token);
-				// printf("line: %d, token: %s\n", progCompiler.errorNode->token.line, YoProgCompiler::getTokenStr(progCompiler.errorNode).c_str());
-			}
+			progCompiler.dumpError();
 			break;
 		}
+		// progCompiler.dump();
 
 		printf("\n======================\n\n");
 
