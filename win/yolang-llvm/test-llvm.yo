@@ -8,7 +8,30 @@ func test(i, j int) int {
 	return i + j
 }
 
-func main() int32 {
+func testPow(a, b float) float {
+	return a ** b
+}
+
+func testPowI(a, b int) int {
+	return (a ** b) as int
+}
+
+func main() double {
+	let b = true
+	
+	let a1 = 5.0_f32
+	let a2 = 2.0_f32
+	
+	if(a1 > a2){
+		return a1 ** a2
+	}
+	
+	a1 = testPow(a1, a2)
+	// return a1
+
+	let b1 = 5
+	let b2 = 2
+	b1 = testPowI(b1, b2)
 	
 	let jj = test(100000, 80000)
 	
@@ -66,12 +89,12 @@ func main() int32 {
 	}
 	
 	func getArr() ? {
-		let arr [4]int32
+		let arr [6]int32
 		arr[1] = 1000
 		return arr
 	}
 	
-	let arr [10][4]int32
+	let arr [10][6]int32
 	arr[5] = getArr()
 	
 	let arr2 = arr
@@ -83,5 +106,5 @@ func main() int32 {
 	&v = 8
 	*/
 	let k = 5
-	return (arr2[k][1] + j + f(3) + jj) as int32
+	return (arr2[k][1] + j + f(3) + jj) ** 0.5
 }

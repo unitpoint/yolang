@@ -10,10 +10,13 @@
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Verifier.h"
+#include "llvm/IR/Intrinsics.h"
 #include "llvm/PassManager.h"
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Transforms/Scalar.h"
 #include "llvm/Support/Host.h"
+#include "llvm/ADT/Triple.h"
+#include "llvm/Target/TargetLibraryInfo.h"
 
 using namespace llvm;
 
@@ -123,6 +126,7 @@ bool YoLLVMCompiler::run(EBuildType buildType)
 	// target lays out data structures.
 	module.llvmModule->setDataLayout(module.llvmExecutionEngine->getDataLayout());
 	FPM.add(new DataLayoutPass());
+	FPM.add(new TargetLibraryInfo(Triple(module.llvmModule->getTargetTriple())));
 	if (buildType == BUILD_RELEASE) {
 		// Provide basic AliasAnalysis support for GVN.
 		FPM.add(createBasicAliasAnalysisPass());
@@ -327,14 +331,46 @@ llvm::Instruction::CastOps YoLLVMCompiler::getCastOp(YoProgCompiler::EOperation 
 	return Instruction::Trunc;
 }
 
-llvm::Instruction::BinaryOps YoLLVMCompiler::getBinOp(YoProgCompiler::EOperation eop, bool isFloat)
+llvm::Instruction::BinaryOps YoLLVMCompiler::getBinOp(YoProgCompiler::EOperation eop, bool isFloat, bool isSigned)
 {
 	switch (eop) {
 	case YoProgCompiler::OP_BIN_ADD:	
 		return isFloat ? Instruction::BinaryOps::FAdd : Instruction::BinaryOps::Add;
+
+	case YoProgCompiler::OP_BIN_SUB:
+		return isFloat ? Instruction::BinaryOps::FSub : Instruction::BinaryOps::Sub;
+
+	case YoProgCompiler::OP_BIN_MUL:
+		return isFloat ? Instruction::BinaryOps::FMul : Instruction::BinaryOps::Mul;
+
+	case YoProgCompiler::OP_BIN_DIV:
+		return isFloat ? Instruction::BinaryOps::FDiv : (isSigned ? Instruction::BinaryOps::SDiv : Instruction::BinaryOps::UDiv);
+
+	case YoProgCompiler::OP_BIN_MOD:
+		return isFloat ? Instruction::BinaryOps::FRem : (isSigned ? Instruction::BinaryOps::SRem : Instruction::BinaryOps::URem);
 	}
 	setError(ERROR_UNREACHABLE, "Error bin op: %d", (int)eop);
 	return Instruction::BinaryOps::Add;
+}
+
+llvm::CmpInst::Predicate YoLLVMCompiler::getCmpOp(YoProgCompiler::EOperation eop, bool isFloat, bool isSigned)
+{
+	switch (eop) {
+	case YoProgCompiler::OP_CMP_EQ:
+		return isFloat ? CmpInst::Predicate::FCMP_OEQ : CmpInst::Predicate::ICMP_EQ;
+	case YoProgCompiler::OP_CMP_NE:
+		return isFloat ? CmpInst::Predicate::FCMP_ONE : CmpInst::Predicate::ICMP_NE;
+	case YoProgCompiler::OP_CMP_LE:
+		return isFloat ? CmpInst::Predicate::FCMP_OLE : (isSigned ? CmpInst::Predicate::ICMP_SLE : CmpInst::Predicate::ICMP_ULE);
+	case YoProgCompiler::OP_CMP_GE:
+		return isFloat ? CmpInst::Predicate::FCMP_OGE : (isSigned ? CmpInst::Predicate::ICMP_SGE : CmpInst::Predicate::ICMP_UGE);
+	case YoProgCompiler::OP_CMP_LT:
+		return isFloat ? CmpInst::Predicate::FCMP_OLT : (isSigned ? CmpInst::Predicate::ICMP_SLT : CmpInst::Predicate::ICMP_ULT);
+	case YoProgCompiler::OP_CMP_GT:
+		return isFloat ? CmpInst::Predicate::FCMP_OGT : (isSigned ? CmpInst::Predicate::ICMP_SGT : CmpInst::Predicate::ICMP_UGT);
+	}
+	setError(ERROR_UNREACHABLE, "Error compare op: %d", (int)eop);
+	return isFloat ? CmpInst::Predicate::FCMP_OEQ : CmpInst::Predicate::ICMP_EQ;
 }
 
 bool YoLLVMCompiler::compileModule(ModuleParams * module)
@@ -368,6 +404,8 @@ llvm::Value * YoLLVMCompiler::compileOp(FuncParams * func, YoProgCompiler::Scope
 	bool isSigned;
 	Value * value, *left, *right, *dstPtr, * srcPtr, * noValue;
 	YO_U64 size;
+	// YoProgCompiler::Operation * progOps[2];
+	std::vector<Type *> argTypes;
 
 	switch (progOp->eop) {
 	case YoProgCompiler::OP_CONST_NULL:
@@ -387,7 +425,12 @@ llvm::Value * YoLLVMCompiler::compileOp(FuncParams * func, YoProgCompiler::Scope
 		YO_ASSERT(progOp->ops.size() == 0);
 		return ConstantFP::get(getType(progOp->type), progOp->constFloat.fval);
 
-	case YoProgCompiler::OP_BIN_ADD:
+	case YoProgCompiler::OP_CMP_EQ:
+	case YoProgCompiler::OP_CMP_NE:
+	case YoProgCompiler::OP_CMP_LE:
+	case YoProgCompiler::OP_CMP_GE:
+	case YoProgCompiler::OP_CMP_LT:
+	case YoProgCompiler::OP_CMP_GT:
 		YO_ASSERT(progOp->ops.size() == 2);
 		YO_ASSERT(progOp->type && progOp->ops[0]->type && progOp->ops[1]->type);
 		YO_ASSERT(progOp->ops[0]->type->etype == progOp->ops[1]->type->etype);
@@ -397,9 +440,71 @@ llvm::Value * YoLLVMCompiler::compileOp(FuncParams * func, YoProgCompiler::Scope
 			YO_ASSERT(isError());
 			return NULL;
 		}
-		// return builder->CreateBinOp(getBinOp(progOp->op, left->getType()->isFloatingPointTy()), left, right);
-		return func->builder->CreateBinOp(getBinOp(progOp->eop, progOp->ops[0]->type->isFloat()), left, right);
+		if (left->getType()->isFloatingPointTy()) {
+			return func->builder->CreateFCmp(getCmpOp(progOp->eop, true, true), left, right);
+		}
+		if (left->getType()->isIntegerTy()) {
+			return func->builder->CreateICmp(getCmpOp(progOp->eop, false, progOp->ops[0]->type->isSigned()), left, right);
+		}
+		setError(ERROR_TYPE, "Number required");
+		return NULL;
 
+	case YoProgCompiler::OP_BIN_ADD:
+	case YoProgCompiler::OP_BIN_SUB:
+	case YoProgCompiler::OP_BIN_MUL:
+	case YoProgCompiler::OP_BIN_DIV:
+	case YoProgCompiler::OP_BIN_MOD:
+		YO_ASSERT(progOp->ops.size() == 2);
+		YO_ASSERT(progOp->type && progOp->ops[0]->type && progOp->ops[1]->type);
+		YO_ASSERT(progOp->ops[0]->type->etype == progOp->ops[1]->type->etype);
+		left = compileOp(func, progScope, progOp->ops[0]);
+		right = compileOp(func, progScope, progOp->ops[1]);
+		if (!left || !right) {
+			YO_ASSERT(isError());
+			return NULL;
+		}
+		return func->builder->CreateBinOp(getBinOp(progOp->eop, progOp->ops[0]->type->isFloat(), progOp->ops[0]->type->isSigned()), left, right);
+
+	case YoProgCompiler::OP_BIN_POWI:
+	case YoProgCompiler::OP_BIN_POWF: {
+		YO_ASSERT(progOp->ops.size() == 2);
+		YO_ASSERT(progOp->type && progOp->ops[0]->type && progOp->ops[1]->type);
+		YO_ASSERT(progOp->ops[0]->type->isFloat() && progOp->ops[1]->type->isNumber());
+		left = compileOp(func, progScope, progOp->ops[0]);
+		right = compileOp(func, progScope, progOp->ops[1]);
+		if (!left || !right) {
+			YO_ASSERT(isError());
+			return NULL;
+		}
+		Intrinsic::ID id = progOp->eop == YoProgCompiler::OP_BIN_POWF ? Intrinsic::pow : Intrinsic::powi;
+		/* if (left->getType()->isIntegerTy()) {
+			id = Intrinsic::powi;
+		} */
+		/* if (left->getType()->isFloatingPointTy()) {
+			size = func->module->llvmExecutionEngine->getDataLayout()->getTypeStoreSize(Type::getDoubleTy(*context));
+			if (!left->getType()->isDoubleTy()) {
+				Instruction::CastOps op = Instruction::FPExt;
+				if (size < func->module->llvmExecutionEngine->getDataLayout()->getTypeStoreSize(left->getType())) {
+					op = Instruction::FPTrunc;
+				}
+				left = func->builder->CreateCast(op, left, Type::getDoubleTy(*context));
+			}
+			if (!right->getType()->isDoubleTy()) {
+				Instruction::CastOps op = Instruction::FPExt;
+				if (size < func->module->llvmExecutionEngine->getDataLayout()->getTypeStoreSize(right->getType())) {
+					op = Instruction::FPTrunc;
+				}
+				right = func->builder->CreateCast(op, right, Type::getDoubleTy(*context));
+			}
+		} */
+		argTypes.push_back(left->getType());
+		// argTypes.push_back(right->getType());
+		// Type * argTypes[] = { left->getType(), right->getType() };
+		// Type * argTypes[] = { left->getType() };
+		Value * args[] = { left, right };
+		Function * callFunc = Intrinsic::getDeclaration(func->module->llvmModule, id, argTypes);
+		return func->builder->CreateCall(callFunc, args);
+	}
 	case YoProgCompiler::OP_RETURN:
 		if (progOp->ops.size() > 0) {
 			YO_ASSERT(progOp->ops.size() == 1);
@@ -534,10 +639,62 @@ llvm::Value * YoLLVMCompiler::compileOp(FuncParams * func, YoProgCompiler::Scope
 		setError(ERROR_UNREACHABLE, "Error sizeof type: %d\n", (int)progOp->type->etype);
 		return NULL;
 
+	case YoProgCompiler::OP_IF:
+		return compileIf(func, progScope, progOp);
+
 	default:
 		setError(ERROR_UNREACHABLE, "Error prog opcode: %d\n", (int)progOp->eop);
 	}
 	return NULL;
+}
+
+llvm::Value * YoLLVMCompiler::compileIf(FuncParams * func, YoProgCompiler::Scope * progScope, YoProgCompiler::Operation * progOp)
+{
+	YO_ASSERT(progOp->eop == YoProgCompiler::OP_IF && progOp->ops.size() == 0);
+
+	Value * condition = compileOp(func, progScope, progOp->stmtIf.conditionOp);
+	if (!condition) {
+		YO_ASSERT(isError());
+		return NULL;
+	}
+	BasicBlock * thenBB = BasicBlock::Create(*context, "then", func->llvmFunc);
+	BasicBlock * elseBB = BasicBlock::Create(*context, "else", func->llvmFunc);
+	BasicBlock * afterBB = BasicBlock::Create(*context, "after", func->llvmFunc);
+
+	func->builder->CreateCondBr(condition, thenBB, elseBB);
+
+	// thenBB->insertInto(func->llvmFunc);
+	func->builder->SetInsertPoint(thenBB);
+	if (!compileScopeBody(func, progOp->stmtIf.thenScope)) {
+		YO_ASSERT(isError());
+		return false;
+	}
+	if (thenBB->size() == 0 || !thenBB->back().isTerminator()) {
+		func->builder->CreateBr(afterBB);
+	}
+
+	// elseBB->insertInto(func->llvmFunc);
+	func->builder->SetInsertPoint(elseBB);
+	if (progOp->stmtIf.elseScope) {
+		if (!compileScopeBody(func, progOp->stmtIf.elseScope)) {
+			YO_ASSERT(isError());
+			return false;
+		}
+	}
+	if (elseBB->size() == 0 || !elseBB->back().isTerminator()) {
+		func->builder->CreateBr(afterBB);
+	}
+
+	// afterBB->insertInto(func->llvmFunc);
+	func->builder->SetInsertPoint(afterBB);
+	return Constant::getNullValue(Type::getInt8Ty(*context));
+
+	/*
+	PHINode * PN = func->builder->CreatePHI(Type::getInt8Ty(*context), 2, "iftmp");
+	PN->addIncoming(func->builder->getInt8(1), thenBB);
+	PN->addIncoming(func->builder->getInt8(2), elseBB);
+	return PN;
+	*/
 }
 
 llvm::Value * YoLLVMCompiler::compileCall(FuncParams * func, YoProgCompiler::Scope * progScope, YoProgCompiler::Operation * progOp)
@@ -628,6 +785,33 @@ llvm::Function * YoLLVMCompiler::compileDeclFunc(ModuleParams * module, YoProgCo
 	return func;
 }
 
+bool YoLLVMCompiler::compileScopeBody(FuncParams * func, YoProgCompiler::Scope * progScope)
+{
+	/*
+	BasicBlock * bb = BasicBlock::Create(*context, progScope->name); // , func->llvmFunc);
+
+	IRBuilder<> builder(*context);
+	builder.SetInsertPoint(bb);
+
+	FuncParams funcParams = *func;
+	// funcParams.module = module;
+	funcParams.builder = &builder;
+	// funcParams.stackValues = &stackValues;
+	// funcParams.argValues = &argValues;
+	// funcParams.llvmFunc = func;
+	*/
+
+	YoProgCompiler::Function * progFunc = progCompiler->getFunction(progScope);
+	for (int i = 0; i < (int)progScope->ops.size(); i++){
+		YoProgCompiler::Operation * progOp = progScope->ops[i];
+		if (!compileOp(func, progFunc, progOp)) {
+			YO_ASSERT(isError());
+			return false;
+		}
+	}
+	return true;
+}
+
 bool YoLLVMCompiler::compileFuncBody(ModuleParams * module, YoProgCompiler::Function * progFunc, llvm::Function * func)
 {
 	// Create a new basic block to start insertion into.
@@ -657,13 +841,16 @@ bool YoLLVMCompiler::compileFuncBody(ModuleParams * module, YoProgCompiler::Func
 		stackValue->ext.index = i;
 		stackValues.push_back(allocaInst);
 
-		if (i < progFunc->funcNativeType->args.size()) {
+		if (i < (int)progFunc->funcNativeType->args.size()) {
 			YO_ASSERT(stackValue->isArg);
 			argValues.push_back(funcAI);
 			if (stackValue->isChanged) {
 				builder.CreateStore(funcAI, allocaInst);
 			}
 			++funcAI;
+		}
+		else{
+			YO_ASSERT(!stackValue->isArg);
 		}
 	}
 

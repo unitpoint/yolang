@@ -29,6 +29,7 @@ public:
 		ERROR_FIELD_DUPLICATED,
 		ERROR_MUTABLE_REQUIRED,
 		ERROR_CALL_ARGS_NUMBER,
+		ERROR_RETURN_IN_MIDDLE,
 	};
 
 	enum EType
@@ -80,6 +81,7 @@ public:
 		Type(const std::string& name, EType, YoParserNode*);
 		virtual ~Type();
 
+		bool isSigned() const;
 		bool isFloat() const;
 		bool isNumber() const;
 	};
@@ -206,6 +208,7 @@ public:
 		SCOPE_MODULE,
 	};
 
+	class Operation;
 	class Scope // : public Value
 	{
 	public:
@@ -216,21 +219,21 @@ public:
 		Scope * parent;
 		EScope escope;
 
+		std::vector<Scope*> scopes;
 		std::vector<StackValue*> stackValues;
 		std::map<std::string, Type*> types;
+		std::vector<Operation*> ops;
 
 		Scope(Scope * parent, EScope, const std::string& name, YoParserNode*);
 		virtual ~Scope();
 	};
 
-	class Operation;
 	class Function : public Scope
 	{
 	public:
 
 		FuncNativeType * funcNativeType;
 		std::vector<std::string> argNames;
-		std::vector<Operation*> ops;
 
 		struct {
 			int index;
@@ -274,12 +277,13 @@ public:
 			Type * type;
 			Function * func;
 		};
-		// NameInfo();
 	};
 
 	enum EOperation
 	{
 		OP_NOP,
+		// OP_SCOPE,
+		OP_IF,
 
 		OP_CAST_TRUNC,
 		OP_CAST_ZERO_EXT,
@@ -307,26 +311,28 @@ public:
 		OP_FUNC,
 
 		OP_LOAD,
-		// OP_LOAD_BY_FUNC,
 		OP_STORE_VALUE,
 		OP_STORE_PTR,
-
-		// OP_READ_LOCAL,
-		// OP_WRITE_LOCAL,
-
-		// OP_READ_UPVAR,
-		// OP_WRITE_UPVAR,
-
-		// OP_READ_GLOBAL,
-		// OP_WRITE_GLOBAL,
 
 		OP_RETURN,
 		OP_CALL_CLOSURE,
 		OP_CALL_FUNC,
+		
 		OP_BIN_ADD,
-		// OP_SUB_FUNC,
+		OP_BIN_SUB,
+		OP_BIN_MUL,
+		OP_BIN_DIV,
+		OP_BIN_MOD,
+		OP_BIN_POWF,
+		OP_BIN_POWI,
 
-		// OP_LIST,
+		OP_CMP_EQ,
+		OP_CMP_NE,
+		OP_CMP_LE,
+		OP_CMP_GE,
+		OP_CMP_LT,
+		OP_CMP_GT,
+
 		OP_STACK_VALUE_MEMZERO,
 		OP_VALUE_ZERO,
 	};
@@ -356,6 +362,7 @@ public:
 			} constFloat;
 
 			Function * func;
+			Scope * scope;
 
 			struct {
 				StructType * parent;
@@ -384,6 +391,12 @@ public:
 				Function * func;
 				int args;
 			} callFunc;
+
+			struct {
+				Operation * conditionOp;
+				Scope * thenScope;
+				Scope * elseScope;
+			} stmtIf;
 		};
 
 		Operation(EOperation, YoParserNode*);
@@ -418,10 +431,14 @@ public:
 	bool isValueOp(Operation * op);
 	bool isTypeOp(Operation * op);
 	bool getIntBits(Type * type, int& bits, bool& isSigned);
-	
+	bool getFloatBits(Type * type, int& bits);
+
 	Type * getSubType(Type * ptrType, YoParserNode* = NULL);
 
 	static std::string getTokenStr(YoParserNode*);
+
+	Function * getFunction(Scope*);
+	Module * getModule(Scope*);
 
 protected:
 
@@ -495,17 +512,17 @@ protected:
 	StackValue * allocTempValue(Scope*, Type * type, const std::string& name, YoParserNode*);
 
 	bool addStmt(Scope*, Operation*);
-	Function * getFunction(Scope*);
-	Module * getModule(Scope*);
 
 	bool compileModule(YoParserNode*);
 	Function * compileFunc(Scope*, YoParserNode*);
 	bool compileFuncBody(Function*, YoParserNode*);
+	bool compileScopeBody(Scope*, YoParserNode*);
 	StackValue * compileDeclVar(Scope*, YoParserNode*);
 	Type * compileDeclType(Scope*, YoParserNode*);
 	// bool exprToStmt(Scope*, Expression*);
 	bool compileStmtBinOp(Scope*, YoParserNode*);
 	bool compileStmtAssign(Scope*, YoParserNode*);
+	bool compileStmtIf(Scope*, YoParserNode*);
 	bool compileStmtReturn(Scope*, YoParserNode*);
 	Operation * compileSubFunc(Scope*, YoParserNode*);
 	Operation * compileDotName(Scope*, YoParserNode*);
@@ -516,6 +533,8 @@ protected:
 	Operation * compileNewObjProps(Scope*, YoParserNode*);
 	Operation * compileBinOp(Scope*, YoParserNode*);
 	Operation * compileIndexOp(Scope*, YoParserNode*);
+	Operation * compilePowOp(Scope*, YoParserNode*);
+	Operation * compileCompareOp(Scope*, YoParserNode*);
 	Operation * compileDotOp(Scope*, Operation * left, YoParserNode * right, YoParserNode*);
 	Operation * compileOp(Scope*, YoParserNode*);
 	Operation * compileValue(Scope*, YoParserNode*);

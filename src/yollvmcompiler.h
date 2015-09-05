@@ -15,6 +15,7 @@ public:
 	enum Error
 	{
 		ERROR_NOTHING,
+		ERROR_TYPE,
 		ERROR_UNREACHABLE,
 		ERROR_IN_PROGCOMPILER,
 	};
@@ -79,13 +80,16 @@ protected:
 	llvm::StructType * getFuncDataType(YoProgCompiler::Type*);
 	llvm::PointerType * getPtrType(YoProgCompiler::Type*);
 	llvm::Instruction::CastOps getCastOp(YoProgCompiler::EOperation progOp);
-	llvm::Instruction::BinaryOps getBinOp(YoProgCompiler::EOperation progOp, bool isFloat);
+	llvm::Instruction::BinaryOps getBinOp(YoProgCompiler::EOperation progOp, bool isFloat, bool isSigned);
+	llvm::CmpInst::Predicate getCmpOp(YoProgCompiler::EOperation progOp, bool isFloat, bool isSigned);
 
 	bool compileModule(ModuleParams*);
 	llvm::Function * compileDeclFunc(ModuleParams*, YoProgCompiler::Function*);
 	bool compileFuncBody(ModuleParams*, YoProgCompiler::Function*, llvm::Function*);
+	bool compileScopeBody(FuncParams*, YoProgCompiler::Scope*);
 	llvm::AllocaInst * allocaVar(FuncParams*, YoProgCompiler::Scope*, YoProgCompiler::StackValue*);
 	llvm::Value * compileOp(FuncParams*, YoProgCompiler::Scope*, YoProgCompiler::Operation*);
+	llvm::Value * compileIf(FuncParams*, YoProgCompiler::Scope*, YoProgCompiler::Operation*);
 	llvm::Value * compileCall(FuncParams*, YoProgCompiler::Scope*, YoProgCompiler::Operation*);
 };
 

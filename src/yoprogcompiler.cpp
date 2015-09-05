@@ -51,6 +51,20 @@ bool YoProgCompiler::Type::isNumber() const
 	return false;
 }
 
+bool YoProgCompiler::Type::isSigned() const
+{
+	switch (etype) {
+	case TYPE_INT8:
+	case TYPE_INT16:
+	case TYPE_INT32:
+	case TYPE_INT64:
+	case TYPE_FLOAT32:
+	case TYPE_FLOAT64:
+		return true;
+	}
+	return false;
+}
+
 // ==============================================================
 
 YoProgCompiler::SubType::SubType(const std::string& p_name, EType p_etype, Type * p_subType, YoParserNode * p_node) :
@@ -163,12 +177,16 @@ YoProgCompiler::Scope::Scope(Scope * p_parent, EScope p_escope, const std::strin
 {
 	parent = p_parent;
 	escope = p_escope;
+
+	if (parent) {
+		parent->scopes.push_back(this);
+	}
 }
 
 YoProgCompiler::Scope::~Scope()
 {
 	if (escope != SCOPE_BLOCK){
-		for (size_t i = 0; i < stackValues.size(); i++) {
+		for (int i = 0; i < (int)stackValues.size(); i++) {
 			delete stackValues[i];
 		}
 	}
@@ -180,6 +198,9 @@ YoProgCompiler::Scope::~Scope()
 			delete type;
 			break;
 		}
+	}
+	for (int i = 0; i < (int)scopes.size(); i++) {
+		delete scopes[i];
 	}
 }
 
@@ -205,11 +226,11 @@ YoProgCompiler::Module::Module(const std::string& p_name, YoParserNode * p_node)
 
 YoProgCompiler::Module::~Module()
 {
-	std::vector<Function*>::iterator fit = funcs.begin();
+	/* std::vector<Function*>::iterator fit = funcs.begin();
 	for (; fit != funcs.end(); ++fit) {
 		Function * func = *fit;
 		delete func;
-	}
+	} */
 }
 
 // ==============================================================
@@ -342,16 +363,43 @@ void YoProgCompiler::dump()
 			}
 		}
 
-		const char * getBinOpName(EOperation eop, bool isFloat)
+		const char * getBinOpName(EOperation eop, bool isFloat, bool isSigned)
 		{
 			switch (eop) {
 			case OP_BIN_ADD:
 				return isFloat ? "fadd" : "add";
+			
+			case OP_BIN_SUB:
+				return isFloat ? "fsub" : "sub";
+
+			case OP_BIN_MUL:
+				return isFloat ? "fmul" : "mul";
+
+			case OP_BIN_DIV:
+				return isFloat ? "fdiv" : (isSigned ? "sdiv" : "udiv");
+
+			case OP_BIN_MOD:
+				return isFloat ? "fmod" : (isSigned ? "smod" : "umod");
+
+			case OP_BIN_POWF:
+				YO_ASSERT(isFloat);
+				return  "fpow";
+
+			case OP_BIN_POWI:
+				YO_ASSERT(isFloat);
+				return  "fpowi";
+
+			case OP_CMP_EQ: return "==";
+			case OP_CMP_NE: return "!=";
+			case OP_CMP_LE: return "<=";
+			case OP_CMP_GE: return ">=";
+			case OP_CMP_LT: return "<";
+			case OP_CMP_GT:	return ">";
 			}
 			return "<unknown>";
 		}
 
-		void dumpCall(Function * func, Operation * op, int depth)
+		void dumpCall(Function * func, Scope * scope, Operation * op, int depth)
 		{
 			YO_ASSERT((op->eop == OP_CALL_CLOSURE || op->eop == OP_CALL_FUNC) && op->ops.size() >= 2);
 
@@ -361,16 +409,16 @@ void YoProgCompiler::dump()
 			if (0 < startArg) {
 				printDepth(depth); printf("begin prepare CALL\n");
 				for (i = 0; i < startArg; i++) {
-					dumpOp(func, op->ops[i], depth + 1);
+					dumpOp(func, scope, op->ops[i], depth + 1);
 				}
 				printDepth(depth); printf("end prepare CALL\n");
 			}
 
 			printDepth(depth); printf("begin CALL\n");
-			dumpOp(func, op->ops[startArg + 0], depth + 1);
-			dumpOp(func, op->ops[startArg + 1], depth + 1);
+			dumpOp(func, scope, op->ops[startArg + 0], depth + 1);
+			dumpOp(func, scope, op->ops[startArg + 1], depth + 1);
 			for (i = startArg + 2; i < (int)op->ops.size(); i++) {
-				dumpOp(func, op->ops[i], depth + 1);
+				dumpOp(func, scope, op->ops[i], depth + 1);
 			}
 			printDepth(depth); printf("end CALL ");
 			dumpType(op->type);
@@ -386,12 +434,12 @@ void YoProgCompiler::dump()
 			return -1;
 		}
 
-		void dumpOp(Function * func, Operation * op, int depth)
+		void dumpOp(Function * func, Scope * scope, Operation * op, int depth)
 		{
 			int i;
 			const char * name;
 			switch (op->eop) {
-			case YoProgCompiler::OP_CONST_NULL:
+			case OP_CONST_NULL:
 				YO_ASSERT(op->ops.size() == 0);
 				printDepth(depth); 
 				printf("NULL");
@@ -399,7 +447,7 @@ void YoProgCompiler::dump()
 				printf("\n");
 				return;
 
-			case YoProgCompiler::OP_CONST_INT:
+			case OP_CONST_INT:
 				YO_ASSERT(op->ops.size() == 0);
 				printDepth(depth);
 				printf("%llu ", op->constInt.val);
@@ -407,7 +455,7 @@ void YoProgCompiler::dump()
 				printf("\n");
 				return;
 
-			case YoProgCompiler::OP_CONST_FLOAT:
+			case OP_CONST_FLOAT:
 				YO_ASSERT(op->ops.size() == 0);
 				printDepth(depth);
 				printf("%lf ", op->constFloat.fval);
@@ -415,24 +463,49 @@ void YoProgCompiler::dump()
 				printf("\n");
 				return;
 
-			case YoProgCompiler::OP_BIN_ADD:
+			case OP_BIN_ADD:
+			case OP_BIN_SUB:
+			case OP_BIN_MUL:
+			case OP_BIN_DIV:
+			case OP_BIN_MOD:
+			case OP_BIN_POWF:
+			case OP_BIN_POWI:
+			case OP_CMP_EQ:
+			case OP_CMP_NE:
+			case OP_CMP_LE:
+			case OP_CMP_GE:
+			case OP_CMP_LT:
+			case OP_CMP_GT:
 				YO_ASSERT(op->ops.size() == 2);
 				YO_ASSERT(op->type && op->ops[0]->type && op->ops[1]->type);
 				YO_ASSERT(op->ops[0]->type->etype == op->ops[1]->type->etype);
 				printDepth(depth);
-				name = getBinOpName(op->eop, op->ops[0]->type->isFloat());
-				// printDepth(depth); printf("begin OP_BIN_ADD %s\n", name);
-				dumpOp(func, op->ops[0], depth + 1);
-				dumpOp(func, op->ops[1], depth + 1);
-				printDepth(depth); printf("OP_BIN_ADD %s ", name);
+				name = getBinOpName(op->eop, op->ops[0]->type->isFloat(), op->ops[0]->type->isSigned());
+				// printDepth(depth); printf("begin OP_BIN_OP %s\n", name);
+				dumpOp(func, scope, op->ops[0], depth + 1);
+				dumpOp(func, scope, op->ops[1], depth + 1);
+				printDepth(depth); printf("OP_BIN_OP %s ", name);
 				dumpType(op->type);
 				printf("\n");
 				return;
 
-			case YoProgCompiler::OP_RETURN:
+			case OP_IF:
+				YO_ASSERT(op->ops.size() == 0);
+				printDepth(depth); printf("IF\n");
+				dumpOp(func, scope, op->stmtIf.conditionOp, depth + 1);
+				printDepth(depth); printf("THEN\n");
+				dumpScope(func, op->stmtIf.thenScope, depth + 1);
+				if (op->stmtIf.elseScope) {
+					printDepth(depth); printf("ELSE\n");
+					dumpScope(func, op->stmtIf.elseScope, depth + 1);
+				}
+				printDepth(depth); printf("ENDIF\n");
+				return;
+
+			case OP_RETURN:
 				if (op->ops.size() > 0) {
 					YO_ASSERT(op->ops.size() == 1);
-					dumpOp(func, op->ops[0], depth + 1);
+					dumpOp(func, scope, op->ops[0], depth + 1);
 					printDepth(depth); printf("OP_RETURN ");
 					dumpType(op->type);
 					printf("\n");
@@ -441,14 +514,14 @@ void YoProgCompiler::dump()
 				printDepth(depth); printf("OP_RETURN\n");
 				return;
 
-			case YoProgCompiler::OP_CALL_CLOSURE:
-			case YoProgCompiler::OP_CALL_FUNC:
-				dumpCall(func, op, depth);
+			case OP_CALL_CLOSURE:
+			case OP_CALL_FUNC:
+				dumpCall(func, scope, op, depth);
 				return;
 
-			case YoProgCompiler::OP_STACK_VALUE_PTR:
+			case OP_STACK_VALUE_PTR:
 				for (i = 0; i < (int)op->ops.size(); i++) {
-					dumpOp(func, op->ops[i], depth + 1);
+					dumpOp(func, scope, op->ops[i], depth + 1);
 				}
 				printDepth(depth);
 				printf("OP_STACK_VALUE_PTR: %s#%d ", op->stackValue->name.c_str(), indexOf(func, op->stackValue));
@@ -456,167 +529,167 @@ void YoProgCompiler::dump()
 				printf("\n");
 				return;
 
-			case YoProgCompiler::OP_STRUCT_ELEMENT_PTR:
+			case OP_STRUCT_ELEMENT_PTR:
 				YO_ASSERT(op->ops.size() == 1);
-				dumpOp(func, op->ops[0], depth + 1);
+				dumpOp(func, scope, op->ops[0], depth + 1);
 				printDepth(depth); printf("OP_STRUCT_ELEMENT_PTR: %d ", op->structElementIndex);
 				dumpType(op->type);
 				printf("\n");
 				return;
 
-			case YoProgCompiler::OP_ELEMENT_PTR: {
+			case OP_ELEMENT_PTR: {
 				YO_ASSERT(op->ops.size() == 2);
 				// printDepth(depth); printf("begin OP_ELEMENT_PTR\n");
-				dumpOp(func, op->ops[0], depth + 1);
-				dumpOp(func, op->ops[1], depth + 1);
+				dumpOp(func, scope, op->ops[0], depth + 1);
+				dumpOp(func, scope, op->ops[1], depth + 1);
 				printDepth(depth); printf("OP_ELEMENT_PTR ");
 				dumpType(op->type);
 				printf("\n");
 				return;
 			}
-			case YoProgCompiler::OP_FUNC:
+			case OP_FUNC:
 				YO_ASSERT(op->ops.size() == 0);
 				printDepth(depth); printf("OP_FUNC %s ", op->func->name.c_str());
 				dumpType(op->func->funcNativeType);
 				printf("\n");
 				return;
 
-			case YoProgCompiler::OP_LOAD:
+			case OP_LOAD:
 				YO_ASSERT(op->ops.size() == 1);
-				dumpOp(func, op->ops[0], depth + 1);
+				dumpOp(func, scope, op->ops[0], depth + 1);
 				printDepth(depth); printf("OP_LOAD ");
 				dumpType(op->type);
 				printf("\n");
 				return;
 
-			case YoProgCompiler::OP_STORE_VALUE:
+			case OP_STORE_VALUE:
 				YO_ASSERT(op->ops.size() == 2);
 				// printDepth(depth); printf("begin OP_STORE_VALUE\n");
-				dumpOp(func, op->ops[0], depth + 1);
-				dumpOp(func, op->ops[1], depth + 1);
+				dumpOp(func, scope, op->ops[0], depth + 1);
+				dumpOp(func, scope, op->ops[1], depth + 1);
 				printDepth(depth); printf("OP_STORE_VALUE ");
 				dumpType(op->type);
 				printf("\n");
 				return;
 
-			case YoProgCompiler::OP_STORE_PTR:
+			case OP_STORE_PTR:
 				YO_ASSERT(op->ops.size() == 2);
 				// printDepth(depth); printf("begin OP_STORE_PTR\n");
-				dumpOp(func, op->ops[0], depth + 1);
-				dumpOp(func, op->ops[1], depth + 1);
+				dumpOp(func, scope, op->ops[0], depth + 1);
+				dumpOp(func, scope, op->ops[1], depth + 1);
 				printDepth(depth); printf("OP_STORE_PTR ");
 				dumpType(op->type);
 				printf("\n");
 				return;
 
-			case YoProgCompiler::OP_STACK_VALUE_MEMZERO:
+			case OP_STACK_VALUE_MEMZERO:
 				printDepth(depth); printf("OP_STACK_VALUE_MEMZERO: %s#%d ", op->stackValue->name.c_str(), indexOf(func, op->stackValue));
 				dumpType(op->stackValue->type);
 				printf("\n");
 				return;
 
-			case YoProgCompiler::OP_VALUE_ZERO:
+			case OP_VALUE_ZERO:
 				printDepth(depth); printf("OP_VALUE_ZERO ");
 				dumpType(op->stackValue->type);
 				printf("\n");
 				return;
 
-			case YoProgCompiler::OP_CAST_TRUNC:
+			case OP_CAST_TRUNC:
 				YO_ASSERT(op->ops.size() == 1);
-				dumpOp(func, op->ops[0], depth + 1);
+				dumpOp(func, scope, op->ops[0], depth + 1);
 				printDepth(depth); printf("OP_CAST_TRUNC ");
 				dumpType(op->type);
 				printf("\n");
 				return;
 
-			case YoProgCompiler::OP_CAST_ZERO_EXT:
+			case OP_CAST_ZERO_EXT:
 				YO_ASSERT(op->ops.size() == 1);
-				dumpOp(func, op->ops[0], depth + 1);
+				dumpOp(func, scope, op->ops[0], depth + 1);
 				printDepth(depth); printf("OP_CAST_ZERO_EXT ");
 				dumpType(op->type);
 				printf("\n");
 				return;
 
-			case YoProgCompiler::OP_CAST_SIGN_EXT:
+			case OP_CAST_SIGN_EXT:
 				YO_ASSERT(op->ops.size() == 1);
-				dumpOp(func, op->ops[0], depth + 1);
+				dumpOp(func, scope, op->ops[0], depth + 1);
 				printDepth(depth); printf("OP_CAST_SIGN_EXT ");
 				dumpType(op->type);
 				printf("\n");
 				return;
 
-			case YoProgCompiler::OP_CAST_SI_TO_FP:
+			case OP_CAST_SI_TO_FP:
 				YO_ASSERT(op->ops.size() == 1);
-				dumpOp(func, op->ops[0], depth + 1);
+				dumpOp(func, scope, op->ops[0], depth + 1);
 				printDepth(depth); printf("OP_CAST_SI_TO_FP ");
 				dumpType(op->type);
 				printf("\n");
 				return;
 
-			case YoProgCompiler::OP_CAST_UI_TO_FP:
+			case OP_CAST_UI_TO_FP:
 				YO_ASSERT(op->ops.size() == 1);
-				dumpOp(func, op->ops[0], depth + 1);
+				dumpOp(func, scope, op->ops[0], depth + 1);
 				printDepth(depth); printf("OP_CAST_UI_TO_FP ");
 				dumpType(op->type);
 				printf("\n");
 				return;
 
-			case YoProgCompiler::OP_CAST_FP_TO_SI:
+			case OP_CAST_FP_TO_SI:
 				YO_ASSERT(op->ops.size() == 1);
-				dumpOp(func, op->ops[0], depth + 1);
+				dumpOp(func, scope, op->ops[0], depth + 1);
 				printDepth(depth); printf("OP_CAST_FP_TO_SI ");
 				dumpType(op->type);
 				printf("\n");
 				return;
 
-			case YoProgCompiler::OP_CAST_FP_TO_UI:
+			case OP_CAST_FP_TO_UI:
 				YO_ASSERT(op->ops.size() == 1);
-				dumpOp(func, op->ops[0], depth + 1);
+				dumpOp(func, scope, op->ops[0], depth + 1);
 				printDepth(depth); printf("OP_CAST_FP_TO_UI ");
 				dumpType(op->type);
 				printf("\n");
 				return;
 
-			case YoProgCompiler::OP_CAST_FP_TRUNC:
+			case OP_CAST_FP_TRUNC:
 				YO_ASSERT(op->ops.size() == 1);
-				dumpOp(func, op->ops[0], depth + 1);
+				dumpOp(func, scope, op->ops[0], depth + 1);
 				printDepth(depth); printf("OP_CAST_FP_TRUNC ");
 				dumpType(op->type);
 				printf("\n");
 				return;
 
-			case YoProgCompiler::OP_CAST_FP_EXT:
+			case OP_CAST_FP_EXT:
 				YO_ASSERT(op->ops.size() == 1);
-				dumpOp(func, op->ops[0], depth + 1);
+				dumpOp(func, scope, op->ops[0], depth + 1);
 				printDepth(depth); printf("OP_CAST_FP_EXT ");
 				dumpType(op->type);
 				printf("\n");
 				return;
 
-			case YoProgCompiler::OP_CAST_PTR:
+			case OP_CAST_PTR:
 				YO_ASSERT(op->ops.size() == 1);
-				dumpOp(func, op->ops[0], depth + 1);
+				dumpOp(func, scope, op->ops[0], depth + 1);
 				printDepth(depth); printf("OP_CAST_PTR ");
 				dumpType(op->type);
 				printf("\n");
 				return;
 
-			case YoProgCompiler::OP_SIZEOF:
+			case OP_SIZEOF:
 				YO_ASSERT(op->ops.size() == 1);
-				dumpOp(func, op->ops[0], depth + 1);
+				dumpOp(func, scope, op->ops[0], depth + 1);
 				printDepth(depth); printf("OP_SIZEOF ");
 				dumpType(op->type);
 				printf("\n");
 				return;
 
-			case YoProgCompiler::OP_TYPE:
+			case OP_TYPE:
 				YO_ASSERT(op->ops.size() == 0);
 				printDepth(depth); printf("OP_TYPE ");
 				dumpType(op->type);
 				printf("\n");
 				return;
 
-			case YoProgCompiler::OP_TYPE_STRUCT_ELEMENT:
+			case OP_TYPE_STRUCT_ELEMENT:
 				YO_ASSERT(op->ops.size() == 0);
 				printDepth(depth + 1); printf("TYPE ");
 				dumpType(op->typeStructElement.parent);
@@ -629,6 +702,14 @@ void YoProgCompiler::dump()
 			default:
 				printDepth(depth); printf("<unknown> %d\n", (int)op->eop);
 				return;
+			}
+		}
+
+		void dumpScope(Function * func, Scope * scope, int depth)
+		{
+			for (int i = 0; i < (int)scope->ops.size(); i++) {
+				Operation * op = scope->ops[i];
+				dumpOp(func, scope, op, depth);
 			}
 		}
 
@@ -646,11 +727,7 @@ void YoProgCompiler::dump()
 			if (i > 0) {
 				printf("\n");
 			}
-
-			for (i = 0; i < (int)func->ops.size(); i++) {
-				Operation * op = func->ops[i];
-				dumpOp(func, op, 1);
-			}
+			dumpScope(func, func, 1);
 			printf("end FUNC\n\n");
 		}
 
@@ -894,6 +971,7 @@ std::string YoProgCompiler::getTokenStr(YoParserNode * node)
 YoProgCompiler::Type * YoProgCompiler::getIntType(int bits, bool isSigned)
 {
 	switch (bits) {
+	case 1: return getType(TYPE_BOOL);
 	case 8: return getType(isSigned ? TYPE_INT8 : TYPE_UINT8);
 	case 16: return getType(isSigned ? TYPE_INT16 : TYPE_UINT16);
 	case 32: return getType(isSigned ? TYPE_INT32 : TYPE_UINT32);
@@ -1498,42 +1576,59 @@ YoProgCompiler::Function * YoProgCompiler::compileFunc(Scope * scope, YoParserNo
 
 bool YoProgCompiler::compileFuncBody(Function * func, YoParserNode * node)
 {
+	return compileScopeBody(func, node);
+}
+
+bool YoProgCompiler::compileScopeBody(Scope * scope, YoParserNode * node)
+{
 	if (node) {
 		std::vector<YoParserNode*> list;
 		collectNodesInReversList(list, node);
 
+		YoParserNode * retStmt = NULL;
 		std::vector<YoParserNode*>::reverse_iterator it = list.rbegin();
 		for (; it != list.rend(); ++it){
 			YoParserNode * stmt = *it;
+			if (retStmt) {
+				setError(ERROR_RETURN_IN_MIDDLE, retStmt, "Return found in the middle of block");
+				return false;
+			}
 			switch (stmt->type) {
 			case YO_NODE_DECL_VAR:
-				if (!compileDeclVar(func, stmt)) {
+				if (!compileDeclVar(scope, stmt)) {
 					return false;
 				}
 				break;
 
 			case YO_NODE_DECL_TYPE:
-				if (!compileDeclType(func, stmt)) {
+				if (!compileDeclType(scope, stmt)) {
 					return false;
 				}
 				break;
 			
 			case YO_NODE_ASSIGN:
-				if (!compileStmtAssign(func, stmt)) {
+				if (!compileStmtAssign(scope, stmt)) {
 					return false;
 				}
 				break;
 
 			case YO_NODE_BIN_OP:
-				if (!compileStmtBinOp(func, stmt)) {
+				if (!compileStmtBinOp(scope, stmt)) {
+					return false;
+				}
+				break;
+
+			case YO_NODE_STMT_IF:
+				if (!compileStmtIf(scope, stmt)) {
 					return false;
 				}
 				break;
 
 			case YO_NODE_STMT_RETURN:
-				if (!compileStmtReturn(func, stmt)) {
+				if (!compileStmtReturn(scope, stmt)) {
 					return false;
 				}
+				retStmt = stmt;
 				break;
 
 			default:
@@ -1614,11 +1709,12 @@ YoProgCompiler::StackValue * YoProgCompiler::compileDeclVar(Scope * scope, YoPar
 
 bool YoProgCompiler::findName(NameInfo& out, Scope * scope, const std::string& name)
 {
-	for (int upCount = 0; scope; upCount++) {
+	YO_ASSERT(scope);
+	for (int upCount = 0; scope;) {
 		if (scope->escope == SCOPE_MODULE) {
 			break;
 		}
-		YO_ASSERT(scope->escope == SCOPE_FUNCTION);
+		// YO_ASSERT(scope->escope == SCOPE_FUNCTION);
 		std::vector<StackValue*>::reverse_iterator vit = scope->stackValues.rbegin();
 		for (; vit != scope->stackValues.rend(); ++vit) {
 			StackValue * stackValue = *vit;
@@ -1645,6 +1741,9 @@ bool YoProgCompiler::findName(NameInfo& out, Scope * scope, const std::string& n
 			out.scope = scope;
 			out.type = tit->second;
 			return true;
+		}
+		if (scope->escope == SCOPE_FUNCTION) {
+			upCount++;
 		}
 		scope = scope->parent;
 	}
@@ -1789,7 +1888,7 @@ bool YoProgCompiler::addStmt(Scope * scope, Operation * op)
 		YO_ASSERT(isError());
 		return false;
 	}
-	getFunction(scope)->ops.push_back(op);
+	scope->ops.push_back(op);
 	return true;
 }
 
@@ -2432,21 +2531,133 @@ YoProgCompiler::Operation * YoProgCompiler::compileIndexOp(Scope * scope, YoPars
 	return NULL;
 }
 
+YoProgCompiler::Operation * YoProgCompiler::compileCompareOp(Scope * scope, YoParserNode * node)
+{
+	YO_ASSERT(node && node->type == YO_NODE_BIN_OP);
+	YO_ASSERT(node->data.binOp.left && node->data.binOp.right);
+
+	EOperation eop = OP_NOP;
+	switch (node->data.binOp.op) {
+	case T_EQ: eop = OP_CMP_EQ; break;
+	case T_NE: eop = OP_CMP_NE; break;
+	case T_LE: eop = OP_CMP_LE; break;
+	case T_GE: eop = OP_CMP_GE; break;
+	case T_LT: eop = OP_CMP_LT; break;
+	case T_GT: eop = OP_CMP_GT; break;
+	default:
+		setError(ERROR_OP, node, "Error compare op: %d", (int)node->data.binOp.op);
+		return NULL;
+	}
+	Operation * left = compileValue(scope, node->data.binOp.left);
+	Operation * right = compileValue(scope, node->data.binOp.right);
+	if (!left || !right) {
+		return NULL;
+	}
+	YO_ASSERT(left->type && right->type);
+	if (left->type != right->type) {
+		Type * resType = getBinOpNumCast(left->type, right->type);
+		if (resType) {
+			Operation * newLeft = convertValueToType(scope, left, resType, CONVERT_BY_HAND, node);
+			Operation * newRight = convertValueToType(scope, right, resType, CONVERT_BY_HAND, node);
+			if (!newLeft || !newRight) {
+				return NULL;
+			}
+			left = newLeft;
+			right = newRight;
+		}
+		else{
+			setError(ERROR_TYPE, node, "Error types for compare op: %d, left: %s, right: %s", (int)eop, left->type->name.c_str(), right->type->name.c_str());
+			return NULL;
+		}
+	}
+	Operation * op = newOperation(eop, node);
+	op->type = getType(TYPE_BOOL);
+	op->ops.push_back(left);
+	op->ops.push_back(right);
+	return op;
+}
+
+YoProgCompiler::Operation * YoProgCompiler::compilePowOp(Scope * scope, YoParserNode * node)
+{
+	YO_ASSERT(node && node->type == YO_NODE_BIN_OP && node->data.binOp.op == T_POW);
+	YO_ASSERT(node->data.binOp.left && node->data.binOp.right);
+
+	Operation * left = compileValue(scope, node->data.binOp.left);
+	Operation * right = compileValue(scope, node->data.binOp.right);
+	if (!left || !right) {
+		return NULL;
+	}
+	YO_ASSERT(left->type && right->type);
+	int bits;
+	bool isSigned;
+	if (getIntBits(left->type, bits, isSigned)) {
+		left = convertValueToType(scope, left, getType(TYPE_FLOAT64), CONVERT_AUTO, node);
+		if (!left) {
+			YO_ASSERT(isError());
+			return NULL;
+		}
+	}
+	else if (!left->type->isFloat()) {
+		setError(ERROR_TYPE, left->parserNode, "Number required");
+		return NULL;
+	}
+	EOperation eop = OP_BIN_POWF;
+	if (getIntBits(right->type, bits, isSigned)) {
+#if 1
+		right = convertValueToType(scope, right, getType(TYPE_FLOAT64), CONVERT_AUTO, node);
+#else
+		eop = OP_BIN_POWI;
+		right = convertValueToType(scope, right, getType(TYPE_INT32), CONVERT_AUTO, node);
+#endif
+		if (!right) {
+			YO_ASSERT(isError());
+			return NULL;
+		}
+	}
+	else if (!right->type->isFloat()) {
+		setError(ERROR_TYPE, right->parserNode, "Number required");
+		return NULL;
+	}
+	if (left->type != right->type) {
+		left = convertValueToType(scope, left, getType(TYPE_FLOAT64), CONVERT_AUTO, node);
+		right = convertValueToType(scope, right, getType(TYPE_FLOAT64), CONVERT_AUTO, node);
+		if (!left || !right) {
+			YO_ASSERT(isError());
+			return NULL;
+		}
+	}
+	Operation * op = newOperation(eop, node);
+	op->type = left->type;
+	op->ops.push_back(left);
+	op->ops.push_back(right);
+	return op;
+}
+
 YoProgCompiler::Operation * YoProgCompiler::compileBinOp(Scope * scope, YoParserNode * node)
 {
 	YO_ASSERT(node && node->type == YO_NODE_BIN_OP);
 	YO_ASSERT(node->data.binOp.left && node->data.binOp.right);
 	EOperation eop = OP_NOP;
 	switch (node->data.binOp.op) {
-	case T_PLUS:
-		eop = OP_BIN_ADD;
-		break;
+	case T_PLUS: eop = OP_BIN_ADD; break;
+	case T_MINUS: eop = OP_BIN_SUB; break;
+	case T_MUL: eop = OP_BIN_MUL; break;
+	case T_DIV: eop = OP_BIN_DIV; break;
+	case T_MOD: eop = OP_BIN_MOD; break;
+
+	case T_POW:
+		return compilePowOp(scope, node);
 
 	case T_INDEX:
 		return compileIndexOp(scope, node);
 
-	// case T_DOT:
-	//	return compileDotOp(scope, node->data.binOp.left, node->data.binOp.right, node);
+	case T_EQ:
+	case T_NE:
+	case T_LE:
+	case T_GE:
+	case T_LT:
+	case T_GT:
+		return compileCompareOp(scope, node);
 
 	default:
 		setError(ERROR_OP, node, "Error bin op: %d", (int)node->data.binOp.op);
@@ -2537,6 +2748,45 @@ bool YoProgCompiler::matchTypeTemplate(Scope * scope, Type *& a, Type * b)
 	return false;
 }
 
+bool YoProgCompiler::compileStmtIf(Scope * scope, YoParserNode * node)
+{
+	YO_ASSERT(node && node->type == YO_NODE_STMT_IF);
+	Operation * conditionOp = compileOp(scope, node->data.stmtIf.ifExpr);
+	conditionOp = convertValueToType(scope, conditionOp, getType(TYPE_BOOL), CONVERT_AUTO, node->data.stmtIf.ifExpr);
+	if (!conditionOp) {
+		YO_ASSERT(isError());
+		return NULL;
+	}
+	YO_ASSERT(node->data.stmtIf.thenStmt);
+	Scope * thenScope = new Scope(scope, SCOPE_BLOCK, "then", node->data.stmtIf.thenStmt);
+	YO_ASSERT(thenScope);
+	if (!compileScopeBody(thenScope, node->data.stmtIf.thenStmt)) {
+		YO_ASSERT(isError());
+		return false;
+	}
+	// Operation * thenOp = newOperation(OP_SCOPE, node->data.stmtIf.thenStmt);
+	// thenOp->scope = thenScope;
+
+	Scope * elseScope = NULL;
+	// Operation * elseOp = NULL;
+	if (node->data.stmtIf.elseStmt) {
+		elseScope = new Scope(scope, SCOPE_BLOCK, "else", node->data.stmtIf.elseStmt);
+		YO_ASSERT(elseScope);
+		if (!compileScopeBody(elseScope, node->data.stmtIf.elseStmt)) {
+			YO_ASSERT(isError());
+			return false;
+		}
+		// elseOp = newOperation(OP_SCOPE, node->data.stmtIf.elseStmt);
+		// elseOp->scope = elseScope;
+	}
+
+	Operation * ifOp = newOperation(OP_IF, node->data.stmtIf.thenStmt);
+	ifOp->stmtIf.conditionOp = conditionOp;
+	ifOp->stmtIf.thenScope = thenScope;
+	ifOp->stmtIf.elseScope = elseScope;
+	return addStmt(scope, ifOp);
+}
+
 bool YoProgCompiler::compileStmtReturn(Scope * scope, YoParserNode * node)
 {
 	YO_ASSERT(node && node->type == YO_NODE_STMT_RETURN);
@@ -2580,6 +2830,15 @@ bool YoProgCompiler::getIntBits(Type * type, int& bits, bool& isSigned)
 	case TYPE_UINT16: bits = 16; isSigned = false; return true;
 	case TYPE_UINT32: bits = 32; isSigned = false; return true;
 	case TYPE_UINT64: bits = 64; isSigned = false; return true;
+	}
+	return false;
+}
+
+bool YoProgCompiler::getFloatBits(Type * type, int& bits)
+{
+	switch (type->etype) {
+	case TYPE_FLOAT32: bits = 32; return true;
+	case TYPE_FLOAT64: bits = 64; return true;
 	}
 	return false;
 }
@@ -2689,7 +2948,8 @@ YoProgCompiler::CastOp YoProgCompiler::getCastOp(Type * from, Type * to)
 		}
 		bool isFloat[2] = { from->isFloat(), to->isFloat() };
 		if (isInt[0] && isFloat[1]) {
-			castOp = CastOp(to->etype, isSigned[0] ? OP_CAST_SI_TO_FP : OP_CAST_UI_TO_FP, CAST_BY_HAND);
+			getFloatBits(to, bits[1]);
+			castOp = CastOp(to->etype, isSigned[0] ? OP_CAST_SI_TO_FP : OP_CAST_UI_TO_FP, bits[0] < bits[1] ? CAST_AUTO : CAST_BY_HAND);
 			break;
 		}
 		if (isFloat[0] && isInt[1]) {
@@ -2964,51 +3224,53 @@ YoProgCompiler::Operation * YoProgCompiler::convertValueToType(Scope * scope, Op
 	bool isValue = isValueOp(op);
 	Type * valueType = isValue ? op->type : getValueType(op);
 	if (valueType == type) {
-		return op;
+		return isValue ? op : getValue(scope, op);
 	}
 	CastOp castOp = getCastOp(valueType, type);
 	if (castOp.eop != OP_NOP) {
+		int bits;
+		bool isSigned, doConvert = false;
 		if (castOp.castType == CAST_AUTO || convertType == CONVERT_BY_HAND) {
+			/* Operation * convertOp = newOperation(castOp.eop, op->parserNode);
+			convertOp->type = type;
+			convertOp->ops.push_back(isValue ? op : getValue(scope, op));
+			return convertOp; */
+			doConvert = true;
+		}
+		else{
+			switch (op->eop) {
+			case OP_CONST_INT:
+				if (getIntBits(type, bits, isSigned)) {
+					// YO_U64 mask = isSigned ? (YO_U64)-1 : 0;
+					YO_U64 mask = ((YO_U64)1 << bits) - 1;
+					if ((op->constInt.val & mask) == op->constInt.val) {
+						doConvert = true;
+					}
+				}
+				else{
+					switch (type->etype) {
+					case TYPE_FLOAT32:
+						if ((YO_U64)(float)op->constInt.val == op->constInt.val) {
+							doConvert = true;
+						}
+						break;
+
+					case TYPE_FLOAT64:
+						if ((YO_U64)(double)op->constInt.val == op->constInt.val) {
+							doConvert = true;
+						}
+						break;
+					}
+				}
+			}
+		}
+		if (doConvert) {
 			Operation * convertOp = newOperation(castOp.eop, op->parserNode);
 			convertOp->type = type;
 			convertOp->ops.push_back(isValue ? op : getValue(scope, op));
 			return convertOp;
 		}
-		int bits;
-		bool isSigned, convertByHand = false;
-		switch (op->eop) {
-		case OP_CONST_INT:
-			if (getIntBits(type, bits, isSigned)) {
-				// YO_U64 mask = isSigned ? (YO_U64)-1 : 0;
-				YO_U64 mask = ((YO_U64)1 << bits) - 1;
-				if ((op->constInt.val & mask) == op->constInt.val) {
-					convertByHand = true;
-				}
-			}
-			else{
-				switch (type->etype) {
-				case TYPE_FLOAT32:
-					if ((YO_U64)(float)op->constInt.val == op->constInt.val) {
-						convertByHand = true;
-					}
-					break;
-
-				case TYPE_FLOAT64:
-					if ((YO_U64)(double)op->constInt.val == op->constInt.val) {
-						convertByHand = true;
-					}
-					break;
-				}
-			}
-			if (convertByHand) {
-				Operation * convertOp = newOperation(castOp.eop, op->parserNode);
-				convertOp->type = type;
-				convertOp->ops.push_back(isValue ? op : getValue(scope, op));
-				return convertOp;
-			}
-			break;
-		}
-		setError(ERROR_CONVERT_TO_TYPE, op->parserNode, "Error auto convert: %s to %s, posible lost value", op->type->name.c_str(), type->name.c_str());
+		setError(ERROR_CONVERT_TO_TYPE, op->parserNode, "Error auto convert: %s to %s, posible lost value", valueType->name.c_str(), type->name.c_str());
 		return NULL;
 	}
 	if (type->etype == TYPE_FUNC_DATA && valueType->etype == TYPE_PTR && op->eop == OP_FUNC) {
@@ -3024,7 +3286,7 @@ YoProgCompiler::Operation * YoProgCompiler::convertValueToType(Scope * scope, Op
 			}
 		}
 	}
-	setError(ERROR_CONVERT_TO_TYPE, op->parserNode, "Error convert: %s to %s", op->type->name.c_str(), type->name.c_str());
+	setError(ERROR_CONVERT_TO_TYPE, op->parserNode, "Error convert: %s to %s", valueType->name.c_str(), type->name.c_str());
 	return NULL;
 }
 

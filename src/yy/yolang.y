@@ -85,7 +85,7 @@ void yyerror(const char* s);
 %pure_parser
 %locations
 %error-verbose
-%expect 6
+%expect 7
 
 %token T_MODULE T_IMPORT
 %token T_DOTDOTDOT
@@ -635,11 +635,18 @@ expr_base:
 	|	expr_for_assign
 	|	expr_arr
 	|	expr_obj
+	|	expr T_EQ expr		{ yoParserBinOp(&$$, &$1, &$3, T_EQ, parm, &yyloc); }
+	|	expr T_NE expr		{ yoParserBinOp(&$$, &$1, &$3, T_NE, parm, &yyloc); }
+	|	expr T_LE expr		{ yoParserBinOp(&$$, &$1, &$3, T_LE, parm, &yyloc); }
+	|	expr T_GE expr		{ yoParserBinOp(&$$, &$1, &$3, T_GE, parm, &yyloc); }
+	|	expr T_LT expr		{ yoParserBinOp(&$$, &$1, &$3, T_LT, parm, &yyloc); }
+	|	expr T_GT expr		{ yoParserBinOp(&$$, &$1, &$3, T_GT, parm, &yyloc); }
 	|	expr T_PLUS expr	{ yoParserBinOp(&$$, &$1, &$3, T_PLUS, parm, &yyloc); }
 	|	expr T_MINUS expr	{ yoParserBinOp(&$$, &$1, &$3, T_MINUS, parm, &yyloc); }
 	|	expr T_MUL expr		{ yoParserBinOp(&$$, &$1, &$3, T_MUL, parm, &yyloc); }
 	|	expr T_DIV expr		{ yoParserBinOp(&$$, &$1, &$3, T_DIV, parm, &yyloc); }
 	|	expr T_MOD expr		{ yoParserBinOp(&$$, &$1, &$3, T_MOD, parm, &yyloc); }
+	|	expr T_POW expr		{ yoParserBinOp(&$$, &$1, &$3, T_POW, parm, &yyloc); }
 	|	expr T_CONCAT expr	{ yoParserBinOp(&$$, &$1, &$3, T_CONCAT, parm, &yyloc); }
 	|	expr T_OR expr  	{ yoParserBinOp(&$$, &$1, &$3, T_OR, parm, &yyloc); }
 	|	expr T_OROR expr  	{ yoParserBinOp(&$$, &$1, &$3, T_OROR, parm, &yyloc); }

@@ -56,9 +56,9 @@ void main()
 
 		YoLLVMCompiler llvmCompiler(&progCompiler);
 		if (llvmCompiler.run(YoLLVMCompiler::BUILD_DEBUG)) {
-			YO_INT32 (*func)(void*) = (YO_INT32(*)(void*))(intptr_t)llvmCompiler.mainFunc;
-			YO_INT32 r = func(NULL);
-			printf("\nResult: %d\n", r);
+			double(*func)(void*) = (double(*)(void*))(intptr_t)llvmCompiler.mainFunc;
+			double r = func(NULL);
+			printf("\nResult: %lf\n", r);
 		}
 		if (llvmCompiler.isError()) {
 			printf("\n======================\n%s\n", llvmCompiler.errorMsg.c_str());

@@ -341,9 +341,11 @@ int yoLexFloat(YYSTYPE * elem, int skipEnd, void * parm, YYLTYPE * loc)
 			break;
 		}
 	}
+#if 0
 	else if((double)(float)fval64 == fval64) {
 		bits = 32;
 	}
+#endif
 	if (bits == 32) {
 		YoParserNode * node = parser->newNode(YO_NODE_CONST_FLOAT, loc);
 		node->data.constFloat.fval = fval64;
