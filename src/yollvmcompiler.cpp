@@ -215,7 +215,7 @@ llvm::Type * YoLLVMCompiler::getType(YoProgCompiler::Type * progType)
 
 llvm::PointerType * YoLLVMCompiler::getPtrType(YoProgCompiler::Type * _progType)
 {
-	YO_ASSERT(_progType->etype == YoProgCompiler::TYPE_PTR);
+	YO_ASSERT(_progType->etype == YoProgCompiler::TYPE_PTR || _progType->etype == YoProgCompiler::TYPE_REF);
 	YoProgCompiler::SubType * progType = dynamic_cast<YoProgCompiler::SubType*>(_progType);
 	YO_ASSERT(progType);
 	if (progType->ext.index >= 0) {

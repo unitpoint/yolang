@@ -1474,6 +1474,9 @@ YoProgCompiler::Type * YoProgCompiler::getParserType(Scope * scope, YoParserNode
 	case YO_NODE_TYPE_PTR:
 		return getPtrType(getParserType(scope, node->data.typePtr.type), node);
 
+	case YO_NODE_TYPE_REF:
+		return getRefType(getParserType(scope, node->data.typeRef.type), node);
+
 	case YO_NODE_TYPE_STD_NAME:
 		return getParserStdType(node->data.typeStdName);
 
@@ -2009,7 +2012,7 @@ YoProgCompiler::Operation * YoProgCompiler::compileDotOp(Scope * scope, Operatio
 	}
 	else{
 		leftValueType = skipTypeMod(getValueType(left));
-		if (leftValueType->etype == TYPE_PTR) { // || leftValueType->etype == TYPE_REF) {
+		if (leftValueType->etype == TYPE_PTR || leftValueType->etype == TYPE_REF) {
 			Operation * loadOp = newOperation(OP_LOAD, node);
 			loadOp->ops.push_back(left);
 			loadOp->type = leftValueType;
@@ -2258,6 +2261,16 @@ YoProgCompiler::Type * YoProgCompiler::getRefFromPtrType(Type * type, YoParserNo
 	return getRefType(type, node);
 }
 
+YoProgCompiler::Type * YoProgCompiler::getPtrFromRefType(Type * type, YoParserNode * node)
+{
+	type = getRefSubType(type, node);
+	if (!type) {
+		YO_ASSERT(isError());
+		return NULL;
+	}
+	return getPtrType(type, node);
+}
+
 YoProgCompiler::Type * YoProgCompiler::getSubType(Type * ptrType, YoParserNode * node)
 {
 	if (!ptrType || !dynamic_cast<SubType*>(ptrType) || !((SubType*)ptrType)->subType) {
@@ -2269,7 +2282,7 @@ YoProgCompiler::Type * YoProgCompiler::getSubType(Type * ptrType, YoParserNode *
 
 YoProgCompiler::Operation * YoProgCompiler::newStructElementPtrOp(Operation * ptrOp, int index, YoParserNode * node)
 {
-	Type * type = skipTypeMod(getPtrSubType(ptrOp->type, node));
+	Type * type = skipTypeMod(getPtrOrRefSubType(ptrOp->type, node));
 	if (!type) {
 		YO_ASSERT(isError());
 		return NULL;
@@ -2502,7 +2515,7 @@ YoProgCompiler::Operation * YoProgCompiler::compileAssign(Scope * scope, YoParse
 		return NULL;
 	}
 	Operation * op;
-	Type * leftValueType;
+	Type * leftValueType, * rightValueType;
 	switch (left->eop) {
 	case OP_PTR:
 		YO_ASSERT(left->ops.size() == 1);
@@ -2549,7 +2562,19 @@ ptr:
 			YO_ASSERT(isError());
 			return NULL;
 		}
-		if (getValueType(right) != leftValueType){
+		rightValueType = getValueType(right);
+		if (rightValueType != leftValueType){
+			if (leftValueType->etype == TYPE_REF) {
+				if (getRefSubType(leftValueType) == rightValueType) {
+					op = newOperation(OP_STORE_VALUE, node);
+					op->ops.push_back(right);	// src
+					op->ops.push_back(left);	// dst
+					op->type = leftValueType;
+					return op;
+				}
+				setError(ERROR_CONVERT_TO_TYPE, right->parserNode, "Error auto convert: %s to %s", rightValueType->name.c_str(), leftValueType->name.c_str());
+				return NULL;
+			}
 			right = getValue(scope, right);
 			right = convertValueToType(scope, right, leftValueType, CONVERT_AUTO, node);
 			if (!right) {
@@ -2744,7 +2769,6 @@ YoProgCompiler::Operation * YoProgCompiler::compileUnaryOp(Scope * scope, YoPars
 {
 	YO_ASSERT(node && node->type == YO_NODE_UNARY_OP);
 	YO_ASSERT(node->data.unaryOp.node);
-	Type * type;
 	Operation * op;
 	switch (node->data.unaryOp.op) {
 	case T_ADDR:
@@ -2754,12 +2778,23 @@ YoProgCompiler::Operation * YoProgCompiler::compileUnaryOp(Scope * scope, YoPars
 			setError(ERROR_UNREACHABLE, node, "Lvalue required");
 			return NULL;
 		}
-		YO_ASSERT(op->type->etype == TYPE_PTR);
-		return newOperation(OP_PTR, op, op->type, node);
+		if (op->type->etype == TYPE_PTR) {
+			return newOperation(OP_PTR, op, op->type, node);
+		}
+		if (op->type->etype == TYPE_REF) {
+			op->type = getPtrFromRefType(op->type);
+			return newOperation(OP_PTR, op, op->type, node);
+		}
+		setError(ERROR_UNREACHABLE, node, "Lvalue required");
+		return NULL;
 
 	case T_INDIRECT:
 		op = compileOp(scope, node->data.unaryOp.node);
-		if (isValueOp(op)) {
+		if (op->eop == OP_PTR) {
+			YO_ASSERT(op->ops.size() == 1);
+			op = op->ops[0];
+		} 
+		else if (isValueOp(op)) {
 			// TODO: !!!
 			setError(ERROR_UNREACHABLE, node, "Value???");
 			return NULL;
@@ -2853,6 +2888,9 @@ bool YoProgCompiler::compileStmtCall(Scope * scope, YoParserNode * node)
 
 bool YoProgCompiler::matchTypeTemplate(Scope * scope, Type *& a, Type * b)
 {
+	if (!a->isUnknownYet) {
+		return false;
+	}
 	if (b->etype == TYPE_UNKNOWN_YET) {
 		YO_ASSERT(false);
 		return false;
@@ -3297,7 +3335,7 @@ YoProgCompiler::Type * YoProgCompiler::getValueType(Operation * op)
 	case OP_STACK_VALUE_PTR:
 	case OP_STRUCT_ELEMENT_PTR:
 	case OP_ELEMENT_PTR:
-		return getPtrSubType(op->type);
+		return getPtrOrRefSubType(op->type);
 	}
 	return op->type;
 }

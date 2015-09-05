@@ -4,6 +4,7 @@ type ClosureData class {
 	
 }
 
+/*
 func test(i, j int) int {
 	return i + j
 }
@@ -15,6 +16,7 @@ func testPow(a, b float) float {
 func testPowI(a, b int) int {
 	return (a ** b) as int
 }
+*/
 
 func main() double {
 	/*
@@ -81,6 +83,11 @@ func main() double {
 	// t.b = 500
 	
 	// t = Test{a=400, b=700}
+	
+	let r &TestBytes = *&*&t.c
+	if(true){
+		return r.b
+	}
 	
 	let p = &t.c
 	if(true){

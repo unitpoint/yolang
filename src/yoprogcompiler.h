@@ -534,6 +534,7 @@ protected:
 
 	Type * skipTypeMod(Type * type);
 	Type * getRefFromPtrType(Type * type, YoParserNode* = NULL);
+	Type * getPtrFromRefType(Type * type, YoParserNode* = NULL);
 
 	bool matchTypeTemplate(Scope*, Type *& src, Type * dst);
 	void updateFuncNativeType(FuncNativeType*);
