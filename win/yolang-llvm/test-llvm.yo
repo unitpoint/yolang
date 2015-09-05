@@ -19,11 +19,16 @@ func testPowI(a, b int) int {
 func main() double {
 	let b = true
 	
-	let a1 = 5.0_f32
-	let a2 = 2.0_f32
+	let a1 = 2.0_f32
+	let a2 = 3.0_f32
+	let a3 = 5.0_f32
 	
 	if(a1 > a2){
-		return a1 ** a2
+		return a1 ** a2 // 8
+	}else if(a2 > a3){
+		return a1 ** a3 // 32
+	}else{
+		return a2 ** a3 // 243
 	}
 	
 	a1 = testPow(a1, a2)

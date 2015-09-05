@@ -657,35 +657,42 @@ llvm::Value * YoLLVMCompiler::compileIf(FuncParams * func, YoProgCompiler::Scope
 		YO_ASSERT(isError());
 		return NULL;
 	}
-	BasicBlock * thenBB = BasicBlock::Create(*context, "then", func->llvmFunc);
-	BasicBlock * elseBB = BasicBlock::Create(*context, "else", func->llvmFunc);
-	BasicBlock * afterBB = BasicBlock::Create(*context, "after", func->llvmFunc);
+	BasicBlock * thenBB = BasicBlock::Create(*context, "then");
+	BasicBlock * elseBB = BasicBlock::Create(*context, "else");
+	BasicBlock * afterBB = BasicBlock::Create(*context, "after");
 
 	func->builder->CreateCondBr(condition, thenBB, elseBB);
 
-	// thenBB->insertInto(func->llvmFunc);
+	thenBB->insertInto(func->llvmFunc);
 	func->builder->SetInsertPoint(thenBB);
 	if (!compileScopeBody(func, progOp->stmtIf.thenScope)) {
 		YO_ASSERT(isError());
-		return false;
+		elseBB->insertInto(func->llvmFunc);
+		afterBB->insertInto(func->llvmFunc);
+		return NULL;
 	}
+	// func->builder->SetInsertPoint(thenBB);
+	thenBB = func->builder->GetInsertBlock();
 	if (thenBB->size() == 0 || !thenBB->back().isTerminator()) {
 		func->builder->CreateBr(afterBB);
 	}
 
-	// elseBB->insertInto(func->llvmFunc);
+	elseBB->insertInto(func->llvmFunc);
 	func->builder->SetInsertPoint(elseBB);
 	if (progOp->stmtIf.elseScope) {
 		if (!compileScopeBody(func, progOp->stmtIf.elseScope)) {
 			YO_ASSERT(isError());
-			return false;
+			afterBB->insertInto(func->llvmFunc);
+			return NULL;
 		}
 	}
+	// func->builder->SetInsertPoint(elseBB);
+	elseBB = func->builder->GetInsertBlock();
 	if (elseBB->size() == 0 || !elseBB->back().isTerminator()) {
 		func->builder->CreateBr(afterBB);
 	}
 
-	// afterBB->insertInto(func->llvmFunc);
+	afterBB->insertInto(func->llvmFunc);
 	func->builder->SetInsertPoint(afterBB);
 	return Constant::getNullValue(Type::getInt8Ty(*context));
 
