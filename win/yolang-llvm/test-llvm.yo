@@ -4,6 +4,15 @@ type ClosureData class {
 	
 }
 
+type TestBytes class {
+	a, b byte
+	c int
+}
+
+func testBytes(r &TestBytes) int {
+	return r.b
+}
+
 /*
 func test(i, j int) int {
 	return i + j
@@ -50,11 +59,6 @@ func main() double {
 	jj = ff(400000, 30000)
 	*/
 
-	type TestBytes class {
-		a, b byte
-		c int
-	}
-	
 	type Test class {
 		c TestBytes
 		a, b int
@@ -83,6 +87,9 @@ func main() double {
 	// t.b = 500
 	
 	// t = Test{a=400, b=700}
+	if(true){
+		return testBytes(t.c)
+	}
 	
 	let r &TestBytes = *&*&t.c
 	if(true){

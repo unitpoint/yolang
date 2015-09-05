@@ -578,7 +578,7 @@ protected:
 	};
 
 	Operation * convertPtrToType(Scope*, Operation*, Type*, YoParserNode*);
-	Operation * convertValueToType(Scope*, Operation*, Type*, EConvertType, YoParserNode*);
+	Operation * convertOpToType(Scope*, Operation*, Type*, EConvertType, YoParserNode*);
 	Operation * getValue(Scope*, Operation*);
 };
 

@@ -143,8 +143,8 @@ CLOSE_BRACKET	= (")"|"}");
 <ST_YOLANG,ST_INJECT>"..." { return T_DOTDOTDOT; }
 /* <ST_YOLANG,ST_INJECT>"[]" { return T_SLICE; } */
 
-<ST_YOLANG,ST_INJECT>"char" { return T_INT8; }
-<ST_YOLANG,ST_INJECT>"byte" { return T_INT8; }
+<ST_YOLANG,ST_INJECT>"char" { return T_UINT8; }
+<ST_YOLANG,ST_INJECT>"byte" { return T_UINT8; }
 
 <ST_YOLANG,ST_INJECT>"int8"  { return T_INT8; }
 <ST_YOLANG,ST_INJECT>"int16" { return T_INT16; }

@@ -515,8 +515,8 @@ void YoProgCompiler::dump()
 				if (op->ops.size() > 0) {
 					YO_ASSERT(op->ops.size() == 1);
 					dumpOp(func, scope, op->ops[0], depth + 1);
-					printDepth(depth); printf("OP_RETURN ");
-					dumpType(op->type);
+					printDepth(depth); printf("OP_RETURN value");
+					// dumpType(op->type);
 					printf("\n");
 					return;
 				}
@@ -585,7 +585,7 @@ void YoProgCompiler::dump()
 				dumpOp(func, scope, op->ops[0], depth + 1);
 				dumpOp(func, scope, op->ops[1], depth + 1);
 				printDepth(depth); printf("OP_STORE_VALUE ");
-				dumpType(op->type);
+				if (op->type) dumpType(op->type);
 				printf("\n");
 				return;
 
@@ -595,7 +595,7 @@ void YoProgCompiler::dump()
 				dumpOp(func, scope, op->ops[0], depth + 1);
 				dumpOp(func, scope, op->ops[1], depth + 1);
 				printDepth(depth); printf("OP_STORE_PTR ");
-				dumpType(op->type);
+				if (op->type) dumpType(op->type);
 				printf("\n");
 				return;
 
@@ -607,7 +607,7 @@ void YoProgCompiler::dump()
 
 			case OP_VALUE_ZERO:
 				printDepth(depth); printf("OP_VALUE_ZERO ");
-				dumpType(op->stackValue->type);
+				dumpType(op->type);
 				printf("\n");
 				return;
 
@@ -1935,7 +1935,7 @@ YoProgCompiler::Operation * YoProgCompiler::compileOp(Scope * scope, YoParserNod
 		return compileCall(scope, node);
 
 	case YO_NODE_CAST:
-		return convertValueToType(scope, compileOp(scope, node->data.cast.expr), getParserType(scope, node->data.cast.type), CONVERT_BY_HAND, node);
+		return convertOpToType(scope, compileOp(scope, node->data.cast.expr), getParserType(scope, node->data.cast.type), CONVERT_BY_HAND, node);
 	}
 	setError(ERROR_UNREACHABLE, node, "Error parser node: %d", (int)node->type);
 	return NULL;
@@ -2100,7 +2100,7 @@ YoProgCompiler::Operation * YoProgCompiler::compileCall(Scope * scope, YoParserN
 				YO_ASSERT(dynamic_cast<FuncNativeType*>(funcType));
 				FuncNativeType * funcNativeType = (FuncNativeType*)funcType;
 				FuncDataType * funcDataType = getFuncDataType(funcNativeType);
-				nameOp = convertValueToType(scope, nameOp, funcDataType, CONVERT_AUTO, node);
+				nameOp = convertOpToType(scope, nameOp, funcDataType, CONVERT_AUTO, node);
 			}
 		} */
 		if (nameOp->stackValue->type->etype != TYPE_FUNC_DATA || !dynamic_cast<FuncDataType*>(nameOp->stackValue->type)){
@@ -2142,7 +2142,7 @@ YoProgCompiler::Operation * YoProgCompiler::compileCall(Scope * scope, YoParserN
 		YO_ASSERT(funcDataType->funcNativeType->args.size()-1/*closure*/ == argNodes.size());
 		for (int i = 0; i < (int)argNodes.size(); i++) {
 			Operation * argOp = compileOp(scope, argNodes[argNodes.size()-1-i]);
-			argOp = convertValueToType(scope, argOp, funcDataType->funcNativeType->args[i + 1].type, CONVERT_AUTO, node);
+			argOp = convertOpToType(scope, argOp, funcDataType->funcNativeType->args[i + 1].type, CONVERT_AUTO, node);
 			if (!argOp) {
 				YO_ASSERT(isError());
 				return NULL;
@@ -2179,7 +2179,7 @@ YoProgCompiler::Operation * YoProgCompiler::compileCall(Scope * scope, YoParserN
 		YO_ASSERT(nameOp->func->funcNativeType->args.size() - 1/*closure*/ == argNodes.size());
 		for (int i = 0; i < (int)argNodes.size(); i++) {
 			Operation * argOp = compileOp(scope, argNodes[argNodes.size() - 1 - i]);
-			argOp = convertValueToType(scope, argOp, nameOp->func->funcNativeType->args[i + 1].type, CONVERT_AUTO, node);
+			argOp = convertOpToType(scope, argOp, nameOp->func->funcNativeType->args[i + 1].type, CONVERT_AUTO, node);
 			if (!argOp) {
 				YO_ASSERT(isError());
 				return NULL;
@@ -2409,8 +2409,8 @@ YoProgCompiler::Operation * YoProgCompiler::compileNewObjExprs(Scope * scope, Yo
 			return NULL;
 		}
 		if (getValueType(expr) != dstType){
-			expr = getValue(scope, expr);
-			expr = convertValueToType(scope, expr, dstType, CONVERT_AUTO, node);
+			// expr = getValue(scope, expr);
+			expr = convertOpToType(scope, expr, dstType, CONVERT_AUTO, node);
 			if (!expr) {
 				return NULL;
 			}
@@ -2482,8 +2482,8 @@ YoProgCompiler::Operation * YoProgCompiler::compileNewObjProps(Scope * scope, Yo
 			return NULL;
 		}
 		if (getValueType(expr) != dstType){
-			expr = getValue(scope, expr);
-			expr = convertValueToType(scope, expr, dstType, CONVERT_AUTO, node);
+			// expr = getValue(scope, expr);
+			expr = convertOpToType(scope, expr, dstType, CONVERT_AUTO, node);
 			if (!expr) {
 				return NULL;
 			}
@@ -2538,7 +2538,7 @@ YoProgCompiler::Operation * YoProgCompiler::compileAssign(Scope * scope, YoParse
 		YO_ASSERT(left->type && left->stackValue && left->stackValue->type && right->type);
 		if (right->eop == OP_FUNC && left->stackValue->type->etype == TYPE_UNKNOWN_YET) {
 			FuncDataType * funcDataType = getFuncDataType(right->func->funcNativeType);
-			right = convertValueToType(scope, right, funcDataType, CONVERT_AUTO, node);
+			right = convertOpToType(scope, right, funcDataType, CONVERT_AUTO, node);
 		}
 		if (matchTypeTemplate(scope, left->stackValue->type, getValueType(right))) {
 			if (left->stackValue->type->etype == TYPE_VOID) {
@@ -2564,7 +2564,7 @@ ptr:
 		}
 		rightValueType = getValueType(right);
 		if (rightValueType != leftValueType){
-			if (leftValueType->etype == TYPE_REF) {
+			/* if (leftValueType->etype == TYPE_REF) {
 				if (getRefSubType(leftValueType) == rightValueType) {
 					op = newOperation(OP_STORE_VALUE, node);
 					op->ops.push_back(right);	// src
@@ -2575,8 +2575,8 @@ ptr:
 				setError(ERROR_CONVERT_TO_TYPE, right->parserNode, "Error auto convert: %s to %s", rightValueType->name.c_str(), leftValueType->name.c_str());
 				return NULL;
 			}
-			right = getValue(scope, right);
-			right = convertValueToType(scope, right, leftValueType, CONVERT_AUTO, node);
+			right = getValue(scope, right); */
+			right = convertOpToType(scope, right, leftValueType, CONVERT_AUTO, node);
 			if (!right) {
 				return NULL;
 			}
@@ -2689,8 +2689,8 @@ YoProgCompiler::Operation * YoProgCompiler::compileCompareOp(Scope * scope, YoPa
 	if (left->type != right->type) {
 		Type * resType = getBinOpNumCast(left->type, right->type);
 		if (resType) {
-			Operation * newLeft = convertValueToType(scope, left, resType, CONVERT_BY_HAND, node);
-			Operation * newRight = convertValueToType(scope, right, resType, CONVERT_BY_HAND, node);
+			Operation * newLeft = convertOpToType(scope, left, resType, CONVERT_BY_HAND, node);
+			Operation * newRight = convertOpToType(scope, right, resType, CONVERT_BY_HAND, node);
 			if (!newLeft || !newRight) {
 				return NULL;
 			}
@@ -2723,7 +2723,7 @@ YoProgCompiler::Operation * YoProgCompiler::compilePowOp(Scope * scope, YoParser
 	int bits;
 	bool isSigned;
 	if (getIntBits(left->type, bits, isSigned)) {
-		left = convertValueToType(scope, left, getType(TYPE_FLOAT64), CONVERT_AUTO, node);
+		left = convertOpToType(scope, left, getType(TYPE_FLOAT64), CONVERT_AUTO, node);
 		if (!left) {
 			YO_ASSERT(isError());
 			return NULL;
@@ -2736,10 +2736,10 @@ YoProgCompiler::Operation * YoProgCompiler::compilePowOp(Scope * scope, YoParser
 	EOperation eop = OP_BIN_POWF;
 	if (getIntBits(right->type, bits, isSigned)) {
 #if 1
-		right = convertValueToType(scope, right, getType(TYPE_FLOAT64), CONVERT_AUTO, node);
+		right = convertOpToType(scope, right, getType(TYPE_FLOAT64), CONVERT_AUTO, node);
 #else
 		eop = OP_BIN_POWI;
-		right = convertValueToType(scope, right, getType(TYPE_INT32), CONVERT_AUTO, node);
+		right = convertOpToType(scope, right, getType(TYPE_INT32), CONVERT_AUTO, node);
 #endif
 		if (!right) {
 			YO_ASSERT(isError());
@@ -2751,8 +2751,8 @@ YoProgCompiler::Operation * YoProgCompiler::compilePowOp(Scope * scope, YoParser
 		return NULL;
 	}
 	if (left->type != right->type) {
-		left = convertValueToType(scope, left, getType(TYPE_FLOAT64), CONVERT_AUTO, node);
-		right = convertValueToType(scope, right, getType(TYPE_FLOAT64), CONVERT_AUTO, node);
+		left = convertOpToType(scope, left, getType(TYPE_FLOAT64), CONVERT_AUTO, node);
+		right = convertOpToType(scope, right, getType(TYPE_FLOAT64), CONVERT_AUTO, node);
 		if (!left || !right) {
 			YO_ASSERT(isError());
 			return NULL;
@@ -2851,8 +2851,8 @@ YoProgCompiler::Operation * YoProgCompiler::compileBinOp(Scope * scope, YoParser
 	if (left->type != right->type) {
 		Type * resType = getBinOpNumCast(left->type, right->type);
 		if (resType) {
-			Operation * newLeft = convertValueToType(scope, left, resType, CONVERT_BY_HAND, node);
-			Operation * newRight = convertValueToType(scope, right, resType, CONVERT_BY_HAND, node);
+			Operation * newLeft = convertOpToType(scope, left, resType, CONVERT_BY_HAND, node);
+			Operation * newRight = convertOpToType(scope, right, resType, CONVERT_BY_HAND, node);
 			if (!newLeft || !newRight) {
 				return NULL;
 			}
@@ -2939,7 +2939,7 @@ bool YoProgCompiler::compileStmtIf(Scope * scope, YoParserNode * node)
 {
 	YO_ASSERT(node && node->type == YO_NODE_STMT_IF);
 	Operation * conditionOp = compileOp(scope, node->data.stmtIf.ifExpr);
-	conditionOp = convertValueToType(scope, conditionOp, getType(TYPE_BOOL), CONVERT_AUTO, node->data.stmtIf.ifExpr);
+	conditionOp = convertOpToType(scope, conditionOp, getType(TYPE_BOOL), CONVERT_AUTO, node->data.stmtIf.ifExpr);
 	if (!conditionOp) {
 		YO_ASSERT(isError());
 		return NULL;
@@ -2989,7 +2989,7 @@ bool YoProgCompiler::compileStmtReturn(Scope * scope, YoParserNode * node)
 			updateFuncNativeType(func->funcNativeType);
 		}
 		else {
-			value = convertValueToType(scope, value, func->funcNativeType->resType, CONVERT_AUTO, node);
+			value = convertOpToType(scope, value, func->funcNativeType->resType, CONVERT_AUTO, node);
 			if (!value) {
 				return false;
 			}
@@ -3404,7 +3404,7 @@ YoProgCompiler::Operation * YoProgCompiler::convertPtrToType(Scope * scope, Oper
 	return convertOp;
 }
 
-YoProgCompiler::Operation * YoProgCompiler::convertValueToType(Scope * scope, Operation * op, Type * type, EConvertType convertType, YoParserNode * node)
+YoProgCompiler::Operation * YoProgCompiler::convertOpToType(Scope * scope, Operation * op, Type * type, EConvertType convertType, YoParserNode * node)
 {
 	if (!op) {
 		YO_ASSERT(isError());
@@ -3416,15 +3416,19 @@ YoProgCompiler::Operation * YoProgCompiler::convertValueToType(Scope * scope, Op
 	if (valueType == type) {
 		return isValue ? op : getValue(scope, op);
 	}
+	if (type->etype == TYPE_REF) {
+		if (!isValue && getRefSubType(type) == valueType) {
+			op->type = type;
+			return op;
+		}
+		setError(ERROR_CONVERT_TO_TYPE, op->parserNode, "Error auto convert: %s to %s, posible lost value", valueType->name.c_str(), type->name.c_str());
+		return NULL;
+	}
 	CastOp castOp = getCastOp(valueType, type);
 	if (castOp.eop != OP_NOP) {
 		int bits;
 		bool isSigned, doConvert = false;
 		if (castOp.castType == CAST_AUTO || convertType == CONVERT_BY_HAND) {
-			/* Operation * convertOp = newOperation(castOp.eop, op->parserNode);
-			convertOp->type = type;
-			convertOp->ops.push_back(isValue ? op : getValue(scope, op));
-			return convertOp; */
 			doConvert = true;
 		}
 		else{
