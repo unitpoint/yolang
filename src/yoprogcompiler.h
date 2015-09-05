@@ -30,6 +30,7 @@ public:
 		ERROR_MUTABLE_REQUIRED,
 		ERROR_CALL_ARGS_NUMBER,
 		ERROR_RETURN_IN_MIDDLE,
+		ERROR_RETURN_REQUIRED,
 	};
 
 	enum EType
@@ -53,6 +54,7 @@ public:
 		TYPE_FUNC_NATIVE,
 		TYPE_FUNC_DATA,
 		TYPE_PTR,
+		TYPE_REF,
 		TYPE_ARRAY,
 		TYPE_MUT,
 		TYPE_CONST,
@@ -61,16 +63,30 @@ public:
 		// TYPE_END_STD = TYPE_FLOAT64
 	};
 
+	class SubType;
 	class Type
 	{
 	public:
 
+		enum EModifier
+		{
+			DEFAULT,
+			CONTANT,
+			MUTABLE,
+		};
+
 		YoParserNode * parserNode;
 		std::string name;
 		EType etype;
+		// EModifier emod;
 		// bool isMutable;
 		bool isUnknownYet;
 		// bool isGeneric;
+
+		SubType * ptrType;
+		SubType * refType;
+		SubType * mutType;
+		SubType * constType;
 
 		std::map<std::string, Type*> subTypes;
 
@@ -84,6 +100,11 @@ public:
 		bool isSigned() const;
 		bool isFloat() const;
 		bool isNumber() const;
+		bool isMutable() const;
+		bool isPointer() const;
+		bool isRef() const;
+
+		// Type * toPointer(YoProgCompiler*);
 	};
 
 	class SubType : public Type
@@ -308,6 +329,8 @@ public:
 		OP_STACK_VALUE_PTR,
 		OP_STRUCT_ELEMENT_PTR,
 		OP_ELEMENT_PTR,
+		OP_PTR,
+		// OP_INDIRECT,
 		OP_FUNC,
 
 		OP_LOAD,
@@ -466,6 +489,7 @@ protected:
 	std::map<std::string, Type*> globalTypes;
 
 	Operation * newOperation(EOperation, YoParserNode*);
+	Operation * newOperation(EOperation, Operation * sub, Type * type, YoParserNode*);
 	Operation * newStackValuePtrOp(StackValue * value, YoParserNode*);
 	Operation * newStructElementPtrOp(Operation * ptrOp, int index, YoParserNode*);
 	Operation * newFuncDataPtrOp(Scope*, Function * func, YoParserNode*);
@@ -492,6 +516,7 @@ protected:
 	Type * getMutType(Type*, YoParserNode*);
 	Type * getConstType(Type*, YoParserNode*);
 	Type * getPtrType(Type*, YoParserNode* = NULL);
+	Type * getRefType(Type*, YoParserNode* = NULL);
 	Type * getArrayType(unsigned size, Type*, YoParserNode* = NULL);
 	Type * getParserStdType(int stdType);
 	Type * getParserType(Scope*, YoParserNode*);
@@ -503,8 +528,12 @@ protected:
 	Type * declStructType(Scope*, EType, const std::string& name, YoParserNode*);
 
 	Type * getPtrSubType(Type * ptrType, YoParserNode* = NULL);
+	Type * getRefSubType(Type * refType, YoParserNode* = NULL);
+	Type * getPtrOrRefSubType(Type * ptrType, YoParserNode* = NULL);
 	Type * getValueType(Operation * op);
-	Type * skipTypeAttrs(Type * type);
+
+	Type * skipTypeMod(Type * type);
+	Type * getRefFromPtrType(Type * type, YoParserNode* = NULL);
 
 	bool matchTypeTemplate(Scope*, Type *& src, Type * dst);
 	void updateFuncNativeType(FuncNativeType*);
@@ -515,7 +544,7 @@ protected:
 
 	bool compileModule(YoParserNode*);
 	Function * compileFunc(Scope*, YoParserNode*);
-	bool compileFuncBody(Function*, YoParserNode*);
+	bool compileFuncBody(Function*, YoParserNode * funcNode);
 	bool compileScopeBody(Scope*, YoParserNode*);
 	StackValue * compileDeclVar(Scope*, YoParserNode*);
 	Type * compileDeclType(Scope*, YoParserNode*);
@@ -524,6 +553,7 @@ protected:
 	bool compileStmtAssign(Scope*, YoParserNode*);
 	bool compileStmtIf(Scope*, YoParserNode*);
 	bool compileStmtReturn(Scope*, YoParserNode*);
+	bool compileStmtCall(Scope*, YoParserNode*);
 	Operation * compileSubFunc(Scope*, YoParserNode*);
 	Operation * compileDotName(Scope*, YoParserNode*);
 	Operation * compileSizeOf(Scope*, YoParserNode*);
@@ -532,6 +562,7 @@ protected:
 	Operation * compileNewObjExprs(Scope*, YoParserNode*);
 	Operation * compileNewObjProps(Scope*, YoParserNode*);
 	Operation * compileBinOp(Scope*, YoParserNode*);
+	Operation * compileUnaryOp(Scope*, YoParserNode*);
 	Operation * compileIndexOp(Scope*, YoParserNode*);
 	Operation * compilePowOp(Scope*, YoParserNode*);
 	Operation * compileCompareOp(Scope*, YoParserNode*);

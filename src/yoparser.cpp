@@ -672,7 +672,7 @@ void YoParser::dumpErrorLine(int line, int linePos)
 			start = errorCursor;
 		}
 	}
-	while (*start <= ' ' && start < end) start++;
+	// while (*start <= ' ' && start < end) start++;
 	if (start > errorLineStart) {
 		startCut = true;
 	}
@@ -686,7 +686,8 @@ void YoParser::dumpErrorLine(int line, int linePos)
 	memcpy(sub, start, len);
 	sub[len] = '\0';
 
-	printf("Error at line: %d, pos: %d\n", errorLine, (int)(cursor - errorLineStart + 1));
+	// printf("Error at line: %d, pos: %d\n", errorLine, (int)(cursor - errorLineStart + 1));
+	printf("Error at line: %d\n", errorLine);
 	printf("%s%s%s\n", startCut ? "..." : "", sub, endCut ? "..." : "");
 
 	int i, pos = cursor - start;
@@ -1182,6 +1183,15 @@ YoParserNode * YoParser::newNode(EYoParserNodeType type, const YoParserToken& to
 	return node;
 }
 
+YoParserNode * YoParser::newLocNode(YYLTYPE * loc)
+{
+	YoParserToken token;
+	token.line = loc->last_line;
+	token.str = lines[loc->last_line - 1] + loc->last_column - 1;
+	token.len = 1;
+	return newNode(YO_NODE_LOC, token);
+}
+
 // =====================================================================
 // =====================================================================
 // =====================================================================
@@ -1599,6 +1609,7 @@ void yoParserDeclFunc(YYSTYPE * r, int op, YYSTYPE * self, YYSTYPE * name, YYSTY
 	node->data.func.name = name ? name->node : NULL;
 	node->data.func.args = args ? args->node : NULL;
 	node->data.func.body = body->node;
+	node->data.func.end = parser->newLocNode(loc);
 	// node->token = name ? name->node->token : args->node->token;
 	r->node = node;
 }
@@ -1709,7 +1720,9 @@ void yoParserStmtIf(YYSTYPE * r, YYSTYPE * ifExpr, YYSTYPE * thenStmt, YYSTYPE *
 			node->type = YO_NODE_STMT_IF;
 			node->data.stmtIf.ifExpr = _ifExpr;
 			node->data.stmtIf.thenStmt = _thenStmt;
-			if (elseStmt->node->type == YO_NODE_ELSE) {
+			if (!elseStmt->node) {
+				node->data.stmtIf.elseStmt = NULL;
+			}else if (elseStmt->node->type == YO_NODE_ELSE) {
 				node->data.stmtIf.elseStmt = elseStmt->node->data.elseElem.node;
 			}
 			else{

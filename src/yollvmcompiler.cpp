@@ -197,6 +197,8 @@ llvm::Type * YoLLVMCompiler::getType(YoProgCompiler::Type * progType)
 
 	case YoProgCompiler::TYPE_ARRAY: return getArrayType(progType);
 	case YoProgCompiler::TYPE_PTR: return getPtrType(progType);
+	case YoProgCompiler::TYPE_REF: 
+		return getPtrType(progType);
 
 	case YoProgCompiler::TYPE_MUT: 
 	case YoProgCompiler::TYPE_CONST:
@@ -552,6 +554,14 @@ llvm::Value * YoLLVMCompiler::compileOp(FuncParams * func, YoProgCompiler::Scope
 		Value * args[] = { zero, value };
 		return func->builder->CreateInBoundsGEP(srcPtr, args);
 	}
+	case YoProgCompiler::OP_PTR:
+		YO_ASSERT(progOp->ops.size() == 1);
+		return compileOp(func, progScope, progOp->ops[0]);
+
+	/*case YoProgCompiler::OP_INDIRECT:
+		YO_ASSERT(progOp->ops.size() == 1);
+		return compileOp(func, progScope, progOp->ops[0]);*/
+
 	case YoProgCompiler::OP_FUNC:
 		YO_ASSERT(progOp->ops.size() == 0);
 		return funcs[progOp->func->ext.index];

@@ -17,17 +17,20 @@ func testPowI(a, b int) int {
 }
 
 func main() double {
+	/*
 	let b = true
 	
 	let a1 = 2.0_f32
 	let a2 = 3.0_f32
 	let a3 = 5.0_f32
 	
+	// printf("Hello World!\n")
+	
 	if(a1 > a2){
 		return a1 ** a2 // 8
 	}else if(a2 > a3){
 		return a1 ** a3 // 32
-	}else{
+	}else if(false){
 		return a2 ** a3 // 243
 	}
 	
@@ -43,6 +46,7 @@ func main() double {
 	// let ff func(i, j int)int = test
 	let ff = test
 	jj = ff(400000, 30000)
+	*/
 
 	type TestBytes class {
 		a, b byte
@@ -71,13 +75,20 @@ func main() double {
 	} */
 	
 	let mut t = Test{TestBytes{1, 2, 3}, 300, 600}
-	t = Test{b: 700}
+	// let t = Test{b: 700}
 	// t.c.b = 10
 	// t.c.c = t.GetA()
 	// t.b = 500
 	
 	// t = Test{a=400, b=700}
+	
+	let p = &t.c
+	if(true){
+		return p.b
+	}
 
+	return 123
+	/*
 	type a [10]byte
 	let mut i = sizeof a[2]
 	i = sizeof t
@@ -104,12 +115,7 @@ func main() double {
 	
 	let arr2 = arr
 	
-	/*
-	let j unsafe * mut int = unsafe & i
-	let v & mut int = i
-	v = 5
-	&v = 8
-	*/
 	let k = 5
 	return (arr2[k][1] + j + f(3) + jj) ** 0.5
+	*/
 }

@@ -54,6 +54,7 @@ enum EYoParserNodeType {
 	YO_NODE_DECL_VAR,
 	YO_NODE_DECL_ARG,
 	YO_NODE_DECL_FUNC,
+	YO_NODE_LOC,
 	YO_NODE_DECL_EXPR_FUNC,
 	YO_NODE_DECL_TYPE,
 	YO_NODE_TYPE_CONTRACT,
@@ -183,6 +184,7 @@ public:
 
 	YoParserNode * newNode(EYoParserNodeType type, const YoParserToken& token);
 	YoParserNode * newNode(EYoParserNodeType type, YYLTYPE * loc);
+	YoParserNode * newLocNode(YYLTYPE * loc);
 
 private:
 	
@@ -339,6 +341,7 @@ struct YoParserNode
 			YoParserNode * args;
 			YoParserNode * type;
 			YoParserNode * body;
+			YoParserNode * end;
 		} func;
 
 		struct {

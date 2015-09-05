@@ -632,7 +632,7 @@ expr:
 	
 expr_base:
 		expr_const_scalar
-	|	expr_for_assign
+	|	dotname
 	|	expr_arr
 	|	expr_obj
 	|	expr T_EQ expr		{ yoParserBinOp(&$$, &$1, &$3, T_EQ, parm, &yyloc); }
@@ -655,6 +655,9 @@ expr_base:
 	|	expr T_XOR expr  	{ yoParserBinOp(&$$, &$1, &$3, T_XOR, parm, &yyloc); }
 	|	expr T_XORXOR expr  { yoParserBinOp(&$$, &$1, &$3, T_XORXOR, parm, &yyloc); }
 	|	expr T_CHAN_ACCESS expr  { yoParserBinOp(&$$, &$1, &$3, T_CHAN_ACCESS, parm, &yyloc); }
+	|	expr T_DOT dotname  { yoParserBinOp(&$$, &$1, &$3, T_DOT, parm, &yyloc); }
+	|	expr '[' expr ']'	{ yoParserBinOp(&$$, &$1, &$3, T_INDEX, parm, &yyloc); }
+	|	assign
 	|	'(' expr ')'		{ $$ = $2; }
 	|	call
 	|	expr_decl_func
@@ -666,9 +669,12 @@ expr_base:
 	|	T_TILDE expr %prec T_UNARY	{ yoParserUnaryOp(&$$, &$2, T_TILDE, parm, &yyloc); }
 	|	T_CHAN_ACCESS expr %prec T_UNARY { yoParserUnaryOp(&$$, &$2, T_CHAN_ACCESS, parm, &yyloc); }
 	|	T_SIZEOF expr %prec T_UNARY { yoParserSizeOf(&$$, &$2, parm, &yyloc); }
+	|	T_MUL 	expr %prec T_UNARY	{ yoParserUnaryOp(&$$, &$2, T_INDIRECT, parm, &yyloc); }
+	|	T_AND	expr %prec T_UNARY	{ yoParserUnaryOp(&$$, &$2, T_ADDR, parm, &yyloc); }
 /*	|	'(' type ')' expr %prec T_UNARY */
 /*	|	T_AT  T_NAME %prec T_UNARY	{ yoParserUnaryOp(&$$, &$2, T_AT, parm, &yyloc); } */
 
+/*
 expr_for_assign:
 		dotname
 	|	expr T_DOT dotname  { yoParserBinOp(&$$, &$1, &$3, T_DOT, parm, &yyloc); }
@@ -678,6 +684,9 @@ expr_for_assign:
 		
 assign:
 		expr_for_assign T_ASSIGN expr	{ yoParserAssign(&$$, &$1, &$3, T_ASSIGN, parm, &yyloc); }
+*/
+assign:
+		expr T_ASSIGN expr	{ yoParserAssign(&$$, &$1, &$3, T_ASSIGN, parm, &yyloc); }
 		
 call_args:
 		expr_list
