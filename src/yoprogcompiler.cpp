@@ -171,6 +171,8 @@ YoProgCompiler::StackValue::StackValue(Type * p_type, const std::string& p_name,
 	isUsed = false;
 	isTemp = false;
 	// isClosure = false;
+	initStackValue = NULL;
+	initStructElementIndex = -1;
 	ext.index = -1;
 }
 
@@ -1638,12 +1640,14 @@ bool YoProgCompiler::compileFuncBody(Function * func, YoParserNode * funcNode)
 				op = newOperation(OP_RETURN, funcNode);
 				// op->type = getType(TYPE_VOID);
 				func->ops.push_back(op);
-				return true;
+				break;
+
+			default:
+				setError(ERROR_RETURN_REQUIRED, funcNode->data.func.end, "Return stmt required");
+				return false;
 			}
-			setError(ERROR_RETURN_REQUIRED, funcNode->data.func.end, "Return stmt required");
-			return false;
 		}
-		return true;
+		return optimizeScopePass1(func);
 	}
 	return false;
 }
@@ -2392,24 +2396,28 @@ YoProgCompiler::Operation * YoProgCompiler::compileNewObjExprs(Scope * scope, Yo
 	YO_ASSERT(structType);
 
 	StackValue * temp = allocTempValue(scope, type, "temp", node);
-	Operation * resultOp = newStackValuePtrOp(temp, node);
+	Operation * resultOp = newStackValuePtrOp(temp, node), * op;
+
+	std::vector<YoParserNode*> nodes;
+	collectNodesInReversList(nodes, node->data.obj.values);
 
 #if 1
-	Operation * op = newOperation(OP_STORE_VALUE, node);
-	Operation * zeroValue = newOperation(OP_VALUE_ZERO, node);
-	zeroValue->type = temp->type;
-	op->ops.push_back(zeroValue);
-	op->ops.push_back(newStackValuePtrOp(temp, node));
-	resultOp->ops.push_back(op);
+	if (nodes.size() != structType->names.size()) {
+		Operation * initZeroOp = newOperation(OP_STORE_VALUE, node);
+		Operation * zeroValue = newOperation(OP_VALUE_ZERO, node);
+		zeroValue->type = temp->type;
+		initZeroOp->ops.push_back(zeroValue);
+		initZeroOp->ops.push_back(newStackValuePtrOp(temp, node));
+		resultOp->ops.push_back(initZeroOp);
+	}
+	else{
+		int i = 0;
+	}
 #else
 	Operation * op = newOperation(OP_STACK_VALUE_MEMZERO, node);
 	op->stackValue = temp;
 	resultOp->ops.push_back(op);
 #endif
-
-	// std::map<std::string, bool> initialized;
-	std::vector<YoParserNode*> nodes;
-	collectNodesInReversList(nodes, node->data.obj.values);
 
 	int i;
 	std::vector<YoParserNode*>::reverse_iterator it = nodes.rbegin();
@@ -2437,6 +2445,11 @@ YoProgCompiler::Operation * YoProgCompiler::compileNewObjExprs(Scope * scope, Yo
 			op->ops.push_back(dst);
 		}
 		else{
+			if (expr->eop == OP_STACK_VALUE_PTR && expr->stackValue->isTemp) {
+				YO_ASSERT(!expr->stackValue->initStackValue);
+				expr->stackValue->initStackValue = temp;
+				expr->stackValue->initStructElementIndex = i;
+			}
 			op = newOperation(isValueOp(expr) ? OP_STORE_VALUE : OP_STORE_PTR, node);
 			op->ops.push_back(expr);
 			op->ops.push_back(dst);
@@ -2444,6 +2457,66 @@ YoProgCompiler::Operation * YoProgCompiler::compileNewObjExprs(Scope * scope, Yo
 		resultOp->ops.push_back(op);
 	}
 	return resultOp;
+}
+
+bool YoProgCompiler::optimizeScopePass1(Scope * scope)
+{
+	if (!scope) {
+		return true;
+	}
+	for (int i = 0; i < (int)scope->ops.size(); i++) {
+		Operation * subOp = optimizeOpPass1(scope, scope->ops[i]);
+		if (!subOp) {
+			YO_ASSERT(isError());
+			return false;
+		}
+		scope->ops[i] = subOp;
+	}
+	return true;
+}
+
+YoProgCompiler::Operation * YoProgCompiler::optimizeOpPass1(Scope * scope, Operation * op)
+{
+	YO_ASSERT(op);
+
+	int i;
+	Operation * subOp;
+	for (i = 0; i < (int)op->ops.size(); i++) {
+		subOp = optimizeOpPass1(scope, op->ops[i]);
+		if (!subOp) {
+			YO_ASSERT(isError());
+			return NULL;
+		}
+		op->ops[i] = subOp;
+	}
+
+	switch (op->eop) {
+	case OP_IF:
+		subOp = optimizeOpPass1(scope, op->stmtIf.conditionOp);
+		if (!subOp) {
+			YO_ASSERT(isError());
+			return NULL;
+		}
+		op->stmtIf.conditionOp = subOp;
+		if (!optimizeScopePass1(op->stmtIf.thenScope) || !optimizeScopePass1(op->stmtIf.elseScope)) {
+			YO_ASSERT(isError());
+			return NULL;
+		}
+		break;
+
+	case OP_STORE_VALUE:
+		YO_ASSERT(op->ops.size() == 2);
+		if (op->ops[0]->eop == YoProgCompiler::OP_VALUE_ZERO) {
+			if (op->ops[1]->eop == YoProgCompiler::OP_STACK_VALUE_PTR) {
+				YoProgCompiler::StackValue * stackValue = op->ops[1]->stackValue;
+				if (stackValue->initStackValue && stackValue->initStructElementIndex >= 0) {
+					return op->ops[1];
+				}
+			}
+		}
+		break;
+	}
+	return op;
 }
 
 YoProgCompiler::Operation * YoProgCompiler::compileNewObjProps(Scope * scope, YoParserNode * node)
@@ -2463,11 +2536,21 @@ YoProgCompiler::Operation * YoProgCompiler::compileNewObjProps(Scope * scope, Yo
 	YO_ASSERT(structType);
 
 	StackValue * temp = allocTempValue(scope, type, "temp", node);
-	Operation * resultOp = newStackValuePtrOp(temp, node);
+	Operation * resultOp = newStackValuePtrOp(temp, node), * op;
 
+#if 1
+	// TODO: check if all fields are initialized so ZERO couldn't be needed
+	Operation * initZeroOp = newOperation(OP_STORE_VALUE, node);
+	Operation * zeroValue = newOperation(OP_VALUE_ZERO, node);
+	zeroValue->type = temp->type;
+	initZeroOp->ops.push_back(zeroValue);
+	initZeroOp->ops.push_back(newStackValuePtrOp(temp, node));
+	resultOp->ops.push_back(initZeroOp);
+#else
 	Operation * op = newOperation(OP_STACK_VALUE_MEMZERO, node);
 	op->stackValue = temp;
 	resultOp->ops.push_back(op);
+#endif
 
 	// std::map<std::string, bool> initialized;
 	std::vector<YoParserNode*> nodes;
@@ -2510,6 +2593,11 @@ YoProgCompiler::Operation * YoProgCompiler::compileNewObjProps(Scope * scope, Yo
 			op->ops.push_back(dst);
 		}
 		else{
+			if (expr->eop == OP_STACK_VALUE_PTR && expr->stackValue->isTemp) {
+				YO_ASSERT(!expr->stackValue->initStackValue);
+				expr->stackValue->initStackValue = temp;
+				expr->stackValue->initStructElementIndex = i;
+			}
 			op = newOperation(isValueOp(expr) ? OP_STORE_VALUE : OP_STORE_PTR, node);
 			op->ops.push_back(expr);
 			op->ops.push_back(dst);
@@ -2603,6 +2691,13 @@ ptr:
 			op->ops.push_back(left);	// dst
 			op->type = right->type;
 			return op;
+		}
+		if (node->data.assign.op == T_INIT_ASSIGN && left->eop == OP_STACK_VALUE_PTR && right->eop == OP_STACK_VALUE_PTR && right->stackValue->isTemp) {
+			YO_ASSERT(right->stackValue->type == left->stackValue->type);
+			YO_ASSERT(left->ops.size() == 0);
+			YO_ASSERT(!right->stackValue->initStackValue);
+			right->stackValue->initStackValue = left->stackValue;
+			// return right;			
 		}
 		op = newOperation(isValueOp(right) ? OP_STORE_VALUE : OP_STORE_PTR, node);
 		op->ops.push_back(right);	// src
@@ -2844,8 +2939,9 @@ YoProgCompiler::Operation * YoProgCompiler::compileUnaryOp(Scope * scope, YoPars
 		} 
 		else if (isValueOp(op)) {
 			// TODO: !!!
-			setError(ERROR_UNREACHABLE, node, "Value???");
-			return NULL;
+			// setError(ERROR_UNREACHABLE, node, "Value???");
+			// return NULL;
+			int i = 0;
 		}
 		// type = op->type;
 		// op = newOperation(OP_INDIRECT, op, node);
@@ -3456,6 +3552,7 @@ YoProgCompiler::Operation * YoProgCompiler::getValue(Scope * scope, Operation * 
 
 YoProgCompiler::Operation * YoProgCompiler::convertPtrToType(Scope * scope, Operation * op, Type * type, YoParserNode * node)
 {
+	/*
 	if (!op) {
 		YO_ASSERT(isError());
 		return NULL;
@@ -3469,6 +3566,8 @@ YoProgCompiler::Operation * YoProgCompiler::convertPtrToType(Scope * scope, Oper
 	convertOp->type = type;
 	convertOp->ops.push_back(op);
 	return convertOp;
+	*/
+	return convertOpToType(scope, op, type, CONVERT_AUTO, node);
 }
 
 YoProgCompiler::Operation * YoProgCompiler::convertOpToType(Scope * scope, Operation * op, Type * type, EConvertType convertType, YoParserNode * node)
@@ -3478,6 +3577,9 @@ YoProgCompiler::Operation * YoProgCompiler::convertOpToType(Scope * scope, Opera
 		return NULL;
 	}
 	YO_ASSERT(op->type && type);
+	/* if (type->etype == TYPE_PTR) {
+		return convertPtrToType(scope, op, type, node);
+	} */
 	bool isValue = isValueOp(op);
 	Type * valueType = isValue ? op->type : getValueType(op);
 	if (valueType == type) {
@@ -3488,7 +3590,17 @@ YoProgCompiler::Operation * YoProgCompiler::convertOpToType(Scope * scope, Opera
 			op->type = type;
 			return op;
 		}
-		setError(ERROR_CONVERT_TO_TYPE, op->parserNode, "Error auto convert: %s to %s, posible lost value", valueType->name.c_str(), type->name.c_str());
+		setError(ERROR_CONVERT_TO_TYPE, op->parserNode, "Error auto convert: %s to %s", valueType->name.c_str(), type->name.c_str());
+		return NULL;
+	}
+	if (type->etype == TYPE_PTR) {
+		if (valueType->etype == TYPE_PTR) {
+			Operation * convertOp = newOperation(OP_CAST_PTR, node);
+			convertOp->type = type;
+			convertOp->ops.push_back(op);
+			return convertOp;
+		}
+		setError(ERROR_CONVERT_TO_TYPE, op->parserNode, "Error auto convert: %s to %s", valueType->name.c_str(), type->name.c_str());
 		return NULL;
 	}
 	CastOp castOp = getCastOp(valueType, type);

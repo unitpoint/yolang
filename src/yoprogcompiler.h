@@ -214,6 +214,9 @@ public:
 		bool isTemp;
 		// bool isClosure;
 
+		StackValue * initStackValue;
+		int initStructElementIndex;
+
 		struct {
 			int index;
 		} ext;
@@ -388,7 +391,7 @@ public:
 			} constFloat;
 
 			Function * func;
-			Scope * scope;
+			// Scope * scope;
 
 			struct {
 				StructType * parent;
@@ -584,6 +587,9 @@ protected:
 	Operation * convertPtrToType(Scope*, Operation*, Type*, YoParserNode*);
 	Operation * convertOpToType(Scope*, Operation*, Type*, EConvertType, YoParserNode*);
 	Operation * getValue(Scope*, Operation*);
+
+	Operation * optimizeOpPass1(Scope*, Operation*);
+	bool optimizeScopePass1(Scope*);
 };
 
 #endif // __YOPROGCOMPILER_H__

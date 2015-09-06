@@ -88,6 +88,7 @@ func main() double {
 	// t = Test{a=400, b=700}
 	// let b_false = func()bool{ return false; }
 	// let b_true = func()bool{ return true; }
+	let s &Test = *(null as *Test)
 	let _bool bool = 1.2 != 0
 	let b_false = {||false}
 	let b_true = {||true}

@@ -412,6 +412,24 @@ llvm::AllocaInst * YoLLVMCompiler::allocaVar(FuncParams * func, YoProgCompiler::
 
 llvm::Value * YoLLVMCompiler::compileOp(FuncParams * func, YoProgCompiler::Scope * progScope, YoProgCompiler::Operation * progOp)
 {
+	struct Lib {
+		static Value * emitStackValuePtr(FuncParams * func, YoProgCompiler::StackValue * progSV)
+		{
+			Value * ptr;
+			if (progSV->initStackValue) {
+				ptr = emitStackValuePtr(func, progSV->initStackValue);
+				YO_ASSERT(ptr);
+				if (progSV->initStructElementIndex >= 0) {
+					ptr = func->builder->CreateStructGEP(ptr, progSV->initStructElementIndex);
+				}
+			}
+			else{
+				ptr = (*func->stackValues)[progSV->ext.index];
+			}
+			return ptr;
+		}
+	};
+
 	int i, bits;
 	bool isSigned;
 	Value * value, *left, *right, *dstPtr, * srcPtr, * noValue;
@@ -545,7 +563,17 @@ llvm::Value * YoLLVMCompiler::compileOp(FuncParams * func, YoProgCompiler::Scope
 				return NULL;
 			}
 		}
-		return (*func->stackValues)[progOp->stackValue->ext.index];
+		return Lib::emitStackValuePtr(func, progOp->stackValue);
+		/* if (progOp->stackValue->initStackValue) {
+			YoProgCompiler::StackValue * progSV = progOp->stackValue->initStackValue;
+			srcPtr = (*func->stackValues)[progOp->stackValue->initStackValue->ext.index];
+			YO_ASSERT(srcPtr);
+			if (progOp->stackValue->initStructElementIndex >= 0) {
+				return func->builder->CreateStructGEP(srcPtr, progOp->stackValue->initStructElementIndex);
+			}
+			return srcPtr;
+		}
+		return (*func->stackValues)[progOp->stackValue->ext.index]; */
 
 	case YoProgCompiler::OP_STRUCT_ELEMENT_PTR:
 		YO_ASSERT(progOp->ops.size() == 1);
@@ -589,6 +617,7 @@ llvm::Value * YoLLVMCompiler::compileOp(FuncParams * func, YoProgCompiler::Scope
 			return NULL;
 		}
 		if (op->eop == YoProgCompiler::OP_STACK_VALUE_PTR) {
+			YO_ASSERT(!op->stackValue->initStackValue);
 			YO_ASSERT(srcPtr == (*func->stackValues)[op->stackValue->ext.index]);
 			if (op->stackValue->isArg && !op->stackValue->isChanged) {
 				return (*func->argValues)[op->stackValue->ext.index];
@@ -602,6 +631,14 @@ llvm::Value * YoLLVMCompiler::compileOp(FuncParams * func, YoProgCompiler::Scope
 		YO_ASSERT(progOp->ops.size() == 2);
 		dstPtr = compileOp(func, progScope, progOp->ops[1]);	// dst
 		if (progOp->eop == YoProgCompiler::OP_STORE_VALUE || progCompiler->isValueOp(progOp->ops[0])){ // src
+			/* if (progOp->ops[0]->eop == YoProgCompiler::OP_VALUE_ZERO) {
+				if (progOp->ops[1]->eop == YoProgCompiler::OP_STACK_VALUE_PTR) {
+					YoProgCompiler::StackValue * progSV = progOp->ops[1]->stackValue;
+					if (progSV->initStackValue && progSV->initStructElementIndex >= 0) {
+						return dstPtr;
+					}
+				}
+			} */
 			value = compileOp(func, progScope, progOp->ops[0]);	// src
 			if (!value || !dstPtr) {
 				YO_ASSERT(isError());
@@ -616,6 +653,10 @@ llvm::Value * YoLLVMCompiler::compileOp(FuncParams * func, YoProgCompiler::Scope
 			YO_ASSERT(isError());
 			return NULL;
 		}
+		if (srcPtr == dstPtr) {
+			// return progOp->type ? srcPtr : noValue;
+			return srcPtr;
+		}
 		size = func->module->llvmExecutionEngine->getDataLayout()->getTypeStoreSize(dstPtr->getType()->getContainedType(0));
 		if (size > sizeof(void*)*4) {
 			noValue = func->builder->CreateMemCpy(dstPtr, srcPtr, size, 1);
@@ -626,6 +667,9 @@ llvm::Value * YoLLVMCompiler::compileOp(FuncParams * func, YoProgCompiler::Scope
 		return progOp->type ? srcPtr : noValue;
 
 	case YoProgCompiler::OP_STACK_VALUE_MEMZERO:
+		if (progOp->stackValue->initStackValue) {
+			int i = 0;
+		}
 		dstPtr = (*func->stackValues)[progOp->stackValue->ext.index];
 		size = func->module->llvmExecutionEngine->getDataLayout()->getTypeStoreSize(dstPtr->getType()->getContainedType(0));
 		return func->builder->CreateMemSet(dstPtr, func->builder->getInt8(0), size, 1);
@@ -920,15 +964,23 @@ bool YoLLVMCompiler::compileFuncBody(ModuleParams * module, YoProgCompiler::Func
 	Function::arg_iterator funcAI = func->arg_begin();
 	for (i = 0; i < (int)progFunc->stackValues.size(); i++) {
 		YoProgCompiler::StackValue * stackValue = progFunc->stackValues[i];
-		AllocaInst * allocaInst = allocaVar(&funcParams, progFunc, stackValue);
-		if (!allocaInst) {
-			return false;
+		AllocaInst * allocaInst;
+		if (0 && stackValue->initStackValue) {
+			YO_ASSERT(stackValue->initStackValue->ext.index >= 0);
+			stackValue->ext.index = stackValue->initStackValue->ext.index;
+			allocaInst = NULL;
 		}
-		stackValue->ext.index = i;
-		stackValues.push_back(allocaInst);
+		else{
+			allocaInst = allocaVar(&funcParams, progFunc, stackValue);
+			if (!allocaInst) {
+				return false;
+			}
+			stackValue->ext.index = i;
+			stackValues.push_back(allocaInst);
+		}
 
 		if (i < (int)progFunc->funcNativeType->args.size()) {
-			YO_ASSERT(stackValue->isArg);
+			YO_ASSERT(stackValue->isArg && allocaInst);
 			argValues.push_back(funcAI);
 			if (stackValue->isChanged) {
 				builder.CreateStore(funcAI, allocaInst);
