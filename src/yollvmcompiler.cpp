@@ -695,9 +695,11 @@ llvm::Value * YoLLVMCompiler::compileLogical(FuncParams * func, YoProgCompiler::
 		return NULL;
 	}
 	if (progOp->eop == YoProgCompiler::OP_LOGICAL_OR) {
-		left = func->builder->CreateNot(left);
+		func->builder->CreateCondBr(left, afterBB, rightBB);
 	}
-	func->builder->CreateCondBr(left, rightBB, afterBB);
+	else{
+		func->builder->CreateCondBr(left, rightBB, afterBB);
+	}
 	leftBB = func->builder->GetInsertBlock();
 	if (leftBB->size() == 0 || !leftBB->back().isTerminator()) {
 		func->builder->CreateBr(afterBB);

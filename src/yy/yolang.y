@@ -478,14 +478,14 @@ decl_func:
 expr_decl_func:
 		T_FUNC empty '(' decl_arg_list_or_empty ')' type_or_empty '{' func_body '}'	
 			{ yoParserDeclFunc(&$$, T_SUB_FUNC, NULL, NULL, &$4, &$6, &$8, parm, &yyloc); }
-	|	'{' T_OR name_list T_OR lambda_body '}'
+	|	'{' T_OR decl_arg_list_or_empty T_OR lambda_body '}'
 			{ yoParserDeclFunc(&$$, T_LAMBDA, NULL, NULL, &$3, NULL, &$5, parm, &yyloc); }
 	|	'{' T_OROR lambda_body '}'
 			{ yoParserDeclFunc(&$$, T_LAMBDA, NULL, NULL, NULL, NULL, &$3, parm, &yyloc); }
 
 lambda_body:
 		expr		{ yoParserStmtReturn(&$$, &$1, parm, &yyloc); }
-	|	func_body
+	/* |	func_body */
 		
 type_self:
 		type_name

@@ -1271,7 +1271,15 @@ YoProgCompiler::FuncNativeType * YoProgCompiler::getFuncNativeType(std::vector<s
 		}
 	}
 	buf << ")";
-	funcType->resType = node->data.func.type ? getParserType(scope, node->data.func.type) : getType(TYPE_VOID);
+	if (node->data.func.type) {
+		funcType->resType = getParserType(scope, node->data.func.type);
+	}
+	else if(node->data.func.op == T_LAMBDA){
+		funcType->resType = getType(TYPE_UNKNOWN_YET);
+	}
+	else{
+		funcType->resType = getType(TYPE_VOID);
+	}
 	buf << funcType->resType->name;
 	funcType->name = buf.str();
 	std::map<std::string, Type*>::iterator it = globalTypes.find(funcType->name);
@@ -1549,7 +1557,9 @@ bool YoProgCompiler::compileModule(YoParserNode * node)
 YoProgCompiler::Function * YoProgCompiler::compileFunc(Scope * scope, YoParserNode * node)
 {
 	YO_ASSERT(node && node->type == YO_NODE_DECL_FUNC);
-	YO_ASSERT(node->data.func.op == T_FUNC && scope->escope == SCOPE_MODULE || node->data.func.op == T_SUB_FUNC && scope->escope != SCOPE_MODULE);
+	YO_ASSERT(node->data.func.op == T_FUNC && scope->escope == SCOPE_MODULE 
+		|| node->data.func.op == T_SUB_FUNC && scope->escope != SCOPE_MODULE
+		|| node->data.func.op == T_LAMBDA && scope->escope != SCOPE_MODULE);
 	YO_ASSERT(!node->data.func.self);
 
 	std::string name;
@@ -1614,16 +1624,19 @@ bool YoProgCompiler::compileFuncBody(Function * func, YoParserNode * funcNode)
 {
 	YO_ASSERT(funcNode->type == YO_NODE_DECL_FUNC);
 	if (compileScopeBody(func, funcNode->data.func.body)) {
-		if (func->ops.back()->eop != OP_RETURN) {
+		if (func->ops.size() == 0 || func->ops.back()->eop != OP_RETURN) {
 			Operation * op;
 			switch (func->funcNativeType->resType->etype) {
 			case TYPE_UNKNOWN_YET:
-				setError(ERROR_TYPE, funcNode, "Unknown return type");
-				return false;
+				func->funcNativeType->resType = getType(TYPE_VOID);
+				updateFuncNativeType(func->funcNativeType);
+				// setError(ERROR_TYPE, funcNode, "Unknown return type");
+				// return false;
+				// no break
 
 			case TYPE_VOID:
 				op = newOperation(OP_RETURN, funcNode);
-				op->type = getType(TYPE_VOID);
+				// op->type = getType(TYPE_VOID);
 				func->ops.push_back(op);
 				return true;
 			}
@@ -3036,7 +3049,21 @@ bool YoProgCompiler::compileStmtReturn(Scope * scope, YoParserNode * node)
 		op->ops.push_back(value);
 		return addStmt(scope, op);
 	}
-	YO_ASSERT(getFunction(scope)->funcNativeType->resType == getType(TYPE_VOID));
+	// YO_ASSERT(getFunction(scope)->funcNativeType->resType == getType(TYPE_VOID));
+	Function * func = getFunction(scope);
+	switch (func->funcNativeType->resType->etype) {
+	case TYPE_UNKNOWN_YET:
+		func->funcNativeType->resType = getType(TYPE_VOID);
+		updateFuncNativeType(func->funcNativeType);
+		break;
+
+	case TYPE_VOID:
+		break;
+
+	default:
+		setError(ERROR_CONVERT_TO_TYPE, op->parserNode, "Error convert: void to %s", func->funcNativeType->resType->name.c_str());
+		return NULL;
+	}
 	return addStmt(scope, op);
 }
 
@@ -3052,6 +3079,7 @@ bool YoProgCompiler::getIntBits(Type * type, int& bits, bool& isSigned)
 	case TYPE_INT16: bits = 16; isSigned = true; return true;
 	case TYPE_INT32: bits = 32; isSigned = true; return true;
 	case TYPE_INT64: bits = 64; isSigned = true; return true;
+	case TYPE_BOOL: bits = 1; isSigned = false; return true;
 	case TYPE_UINT8: bits = 8; isSigned = false; return true;
 	case TYPE_UINT16: bits = 16; isSigned = false; return true;
 	case TYPE_UINT32: bits = 32; isSigned = false; return true;
@@ -3503,7 +3531,7 @@ YoProgCompiler::Operation * YoProgCompiler::convertOpToType(Scope * scope, Opera
 			convertOp->ops.push_back(isValue ? op : getValue(scope, op));
 			return convertOp;
 		}
-		setError(ERROR_CONVERT_TO_TYPE, op->parserNode, "Error auto convert: %s to %s, posible lost value", valueType->name.c_str(), type->name.c_str());
+		setError(ERROR_CONVERT_TO_TYPE, op->parserNode, "Error auto convert: %s to %s", valueType->name.c_str(), type->name.c_str());
 		return NULL;
 	}
 	if (type->etype == TYPE_FUNC_DATA && valueType->etype == TYPE_PTR && op->eop == OP_FUNC) {
