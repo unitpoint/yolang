@@ -404,6 +404,9 @@ void YoProgCompiler::dump()
 			case OP_CMP_GE: return ">=";
 			case OP_CMP_LT: return "<";
 			case OP_CMP_GT:	return ">";
+
+			case OP_LOGICAL_OR: return "||";
+			case OP_LOGICAL_AND: return "&&";
 			}
 			return "<unknown>";
 		}
@@ -485,6 +488,8 @@ void YoProgCompiler::dump()
 			case OP_CMP_GE:
 			case OP_CMP_LT:
 			case OP_CMP_GT:
+			case OP_LOGICAL_OR:
+			case OP_LOGICAL_AND:
 				YO_ASSERT(op->ops.size() == 2);
 				YO_ASSERT(op->type && op->ops[0]->type && op->ops[1]->type);
 				YO_ASSERT(op->ops[0]->type->etype == op->ops[1]->type->etype);
@@ -2663,6 +2668,36 @@ YoProgCompiler::Operation * YoProgCompiler::compileIndexOp(Scope * scope, YoPars
 	return NULL;
 }
 
+YoProgCompiler::Operation * YoProgCompiler::compileLogicalOp(Scope * scope, YoParserNode * node)
+{
+	YO_ASSERT(node && node->type == YO_NODE_BIN_OP);
+	YO_ASSERT(node->data.binOp.left && node->data.binOp.right);
+
+	EOperation eop = OP_NOP;
+	switch (node->data.binOp.op) {
+	case T_OROR: eop = OP_LOGICAL_OR; break;
+	case T_ANDAND: eop = OP_LOGICAL_AND; break;
+	default:
+		setError(ERROR_OP, node, "Error logical op: %d", (int)node->data.binOp.op);
+		return NULL;
+	}
+	Operation * left = compileOp(scope, node->data.binOp.left);
+	Operation * right = compileOp(scope, node->data.binOp.right);
+	
+	left = convertOpToType(scope, left, getType(TYPE_BOOL), CONVERT_AUTO, node);
+	right = convertOpToType(scope, right, getType(TYPE_BOOL), CONVERT_AUTO, node);
+	
+	if (!left || !right) {
+		return NULL;
+	}
+	YO_ASSERT(left->type && right->type);
+	Operation * op = newOperation(eop, node);
+	op->type = getType(TYPE_BOOL);
+	op->ops.push_back(left);
+	op->ops.push_back(right);
+	return op;
+}
+
 YoProgCompiler::Operation * YoProgCompiler::compileCompareOp(Scope * scope, YoParserNode * node)
 {
 	YO_ASSERT(node && node->type == YO_NODE_BIN_OP);
@@ -2837,6 +2872,10 @@ YoProgCompiler::Operation * YoProgCompiler::compileBinOp(Scope * scope, YoParser
 	case T_LT:
 	case T_GT:
 		return compileCompareOp(scope, node);
+
+	case T_OROR:
+	case T_ANDAND:
+		return compileLogicalOp(scope, node);
 
 	default:
 		setError(ERROR_OP, node, "Error bin op: %d", (int)node->data.binOp.op);

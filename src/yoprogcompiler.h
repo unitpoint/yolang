@@ -356,6 +356,9 @@ public:
 		OP_CMP_LT,
 		OP_CMP_GT,
 
+		OP_LOGICAL_OR,
+		OP_LOGICAL_AND,
+
 		OP_STACK_VALUE_MEMZERO,
 		OP_VALUE_ZERO,
 	};
@@ -567,6 +570,7 @@ protected:
 	Operation * compileIndexOp(Scope*, YoParserNode*);
 	Operation * compilePowOp(Scope*, YoParserNode*);
 	Operation * compileCompareOp(Scope*, YoParserNode*);
+	Operation * compileLogicalOp(Scope*, YoParserNode*);
 	Operation * compileDotOp(Scope*, Operation * left, YoParserNode * right, YoParserNode*);
 	Operation * compileOp(Scope*, YoParserNode*);
 	Operation * compileValue(Scope*, YoParserNode*);

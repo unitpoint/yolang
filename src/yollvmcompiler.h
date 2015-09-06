@@ -16,6 +16,8 @@ public:
 	{
 		ERROR_NOTHING,
 		ERROR_TYPE,
+		ERROR_VERIFY_FUNC,
+		ERROR_VERIFY_MODULE,
 		ERROR_UNREACHABLE,
 		ERROR_IN_PROGCOMPILER,
 	};
@@ -90,6 +92,7 @@ protected:
 	llvm::AllocaInst * allocaVar(FuncParams*, YoProgCompiler::Scope*, YoProgCompiler::StackValue*);
 	llvm::Value * compileOp(FuncParams*, YoProgCompiler::Scope*, YoProgCompiler::Operation*);
 	llvm::Value * compileIf(FuncParams*, YoProgCompiler::Scope*, YoProgCompiler::Operation*);
+	llvm::Value * compileLogical(FuncParams*, YoProgCompiler::Scope*, YoProgCompiler::Operation*);
 	llvm::Value * compileCall(FuncParams*, YoProgCompiler::Scope*, YoProgCompiler::Operation*);
 };
 

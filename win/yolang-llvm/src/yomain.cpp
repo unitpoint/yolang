@@ -44,6 +44,8 @@ void main()
 		}
 		parser.dump();
 
+		printf("\n======================\n\n");
+
 		YoProgCompiler progCompiler(&parser);
 		progCompiler.run();
 		if (progCompiler.isError()) {
@@ -51,8 +53,6 @@ void main()
 			break;
 		}
 		// progCompiler.dump();
-
-		printf("\n======================\n\n");
 
 		YoLLVMCompiler llvmCompiler(&progCompiler);
 		if (llvmCompiler.run(YoLLVMCompiler::BUILD_DEBUG)) {

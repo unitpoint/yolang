@@ -9,7 +9,7 @@ type TestBytes class {
 	c int
 }
 
-func testBytes(r &TestBytes) int {
+func testBytes(b bool, r &TestBytes) int {
 	return r.b
 }
 
@@ -87,17 +87,20 @@ func main() double {
 	// t.b = 500
 	
 	// t = Test{a=400, b=700}
-	if(true){
-		return testBytes(t.c)
+	let b_false = func()bool{ return false; }
+	let b_true = func()bool{ return true; }
+	let b_res = b_false() || b_true()
+	if b_res {
+		return testBytes(b_res, t.c)
 	}
 	
 	let r &TestBytes = *&*&t.c
-	if(true){
+	if true {
 		return r.b
 	}
 	
 	let p = &t.c
-	if(true){
+	if true {
 		return p.b
 	}
 

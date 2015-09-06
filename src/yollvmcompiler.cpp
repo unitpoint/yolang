@@ -17,6 +17,7 @@
 #include "llvm/Support/Host.h"
 #include "llvm/ADT/Triple.h"
 #include "llvm/Target/TargetLibraryInfo.h"
+#include "llvm/Support/raw_ostream.h"
 
 using namespace llvm;
 
@@ -150,12 +151,21 @@ bool YoLLVMCompiler::run(EBuildType buildType)
 		module.progModule = progModule;
 		if (!compileModule(&module)) {
 			YO_ASSERT(isError());
+			module.llvmModule->dump();
 			context = NULL;
 			return false;
 		}
 	}
 	
-	verifyModule(*module.llvmModule);
+	SmallVector<char, 1000> buf;
+	raw_svector_ostream OS(buf);
+	if (verifyModule(*module.llvmModule, &OS)) {
+		// setError(ERROR_VERIFY_MODULE, "Error verify module %s", module.llvmModule->getName().str().c_str());
+		setError(ERROR_VERIFY_MODULE, OS.str());
+		module.llvmModule->dump();
+		context = NULL;
+		return false;
+	}
 
 	module.llvmModule->dump();
 
@@ -427,6 +437,10 @@ llvm::Value * YoLLVMCompiler::compileOp(FuncParams * func, YoProgCompiler::Scope
 		YO_ASSERT(progOp->ops.size() == 0);
 		return ConstantFP::get(getType(progOp->type), progOp->constFloat.fval);
 
+	case YoProgCompiler::OP_LOGICAL_OR:
+	case YoProgCompiler::OP_LOGICAL_AND:
+		return compileLogical(func, progScope, progOp);
+
 	case YoProgCompiler::OP_CMP_EQ:
 	case YoProgCompiler::OP_CMP_NE:
 	case YoProgCompiler::OP_CMP_LE:
@@ -658,6 +672,59 @@ llvm::Value * YoLLVMCompiler::compileOp(FuncParams * func, YoProgCompiler::Scope
 	return NULL;
 }
 
+llvm::Value * YoLLVMCompiler::compileLogical(FuncParams * func, YoProgCompiler::Scope * progScope, YoProgCompiler::Operation * progOp)
+{
+	YO_ASSERT((progOp->eop == YoProgCompiler::OP_LOGICAL_OR || progOp->eop == YoProgCompiler::OP_LOGICAL_AND) && progOp->ops.size() == 2);
+
+	BasicBlock * leftBB = BasicBlock::Create(*context, "left");
+	BasicBlock * rightBB = BasicBlock::Create(*context, "right");
+	BasicBlock * afterBB = BasicBlock::Create(*context, "after");
+
+	BasicBlock * curBB = func->builder->GetInsertBlock();
+	if (curBB->size() == 0 || !curBB->back().isTerminator()) {
+		func->builder->CreateBr(leftBB);
+	}
+
+	leftBB->insertInto(func->llvmFunc);
+	func->builder->SetInsertPoint(leftBB);
+	Value * left = compileOp(func, progScope, progOp->ops[0]);
+	if (!left) {
+		YO_ASSERT(isError());
+		rightBB->insertInto(func->llvmFunc);
+		afterBB->insertInto(func->llvmFunc);
+		return NULL;
+	}
+	if (progOp->eop == YoProgCompiler::OP_LOGICAL_OR) {
+		left = func->builder->CreateNot(left);
+	}
+	func->builder->CreateCondBr(left, rightBB, afterBB);
+	leftBB = func->builder->GetInsertBlock();
+	if (leftBB->size() == 0 || !leftBB->back().isTerminator()) {
+		func->builder->CreateBr(afterBB);
+	}
+
+	rightBB->insertInto(func->llvmFunc);
+	func->builder->SetInsertPoint(rightBB);
+	Value * right = compileOp(func, progScope, progOp->ops[1]);
+	if (!right) {
+		YO_ASSERT(isError());
+		afterBB->insertInto(func->llvmFunc);
+		return NULL;
+	}
+	rightBB = func->builder->GetInsertBlock();
+	if (rightBB->size() == 0 || !rightBB->back().isTerminator()) {
+		func->builder->CreateBr(afterBB);
+	}
+
+	afterBB->insertInto(func->llvmFunc);
+	func->builder->SetInsertPoint(afterBB);
+
+	PHINode * PN = func->builder->CreatePHI(left->getType(), 2, "iftmp");
+	PN->addIncoming(left, leftBB);
+	PN->addIncoming(right, rightBB);
+	return PN;
+}
+
 llvm::Value * YoLLVMCompiler::compileIf(FuncParams * func, YoProgCompiler::Scope * progScope, YoProgCompiler::Operation * progOp)
 {
 	YO_ASSERT(progOp->eop == YoProgCompiler::OP_IF && progOp->ops.size() == 0);
@@ -853,7 +920,7 @@ bool YoLLVMCompiler::compileFuncBody(ModuleParams * module, YoProgCompiler::Func
 		YoProgCompiler::StackValue * stackValue = progFunc->stackValues[i];
 		AllocaInst * allocaInst = allocaVar(&funcParams, progFunc, stackValue);
 		if (!allocaInst) {
-			return NULL;
+			return false;
 		}
 		stackValue->ext.index = i;
 		stackValues.push_back(allocaInst);
@@ -875,10 +942,17 @@ bool YoLLVMCompiler::compileFuncBody(ModuleParams * module, YoProgCompiler::Func
 		YoProgCompiler::Operation * progOp = progFunc->ops[i];
 		if (!compileOp(&funcParams, progFunc, progOp)) {
 			YO_ASSERT(isError());
-			return NULL;
+			return false;
 		}
 	}
-	verifyFunction(*func);
-	module->llvmFPM->run(*func);
-	return func;
+
+	SmallVector<char, 1000> buf;
+	raw_svector_ostream OS(buf);
+	if (!verifyFunction(*func, &OS)) {
+		module->llvmFPM->run(*func);
+		return true;
+	}
+	// setError(ERROR_VERIFY_FUNC, "Error verify function %s", func->getName().str().c_str());
+	setError(ERROR_VERIFY_FUNC, OS.str());
+	return false;
 }
