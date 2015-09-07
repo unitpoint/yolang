@@ -150,14 +150,15 @@ CLOSE_BRACKET	= (")"|"}");
 <ST_YOLANG,ST_INJECT>"int16" { return T_INT16; }
 <ST_YOLANG,ST_INJECT>"int32" { return T_INT32; }
 <ST_YOLANG,ST_INJECT>"int64" { return T_INT64; }
-<ST_YOLANG,ST_INJECT>"int"	  { return sizeof(int) == 8 ? T_INT64 : T_INT32; }
+<ST_YOLANG,ST_INJECT>"int"	  { return T_INT; }
 
 <ST_YOLANG,ST_INJECT>"uint8"	{ return T_UINT8; }
 <ST_YOLANG,ST_INJECT>"uint16"	{ return T_UINT16; }
 <ST_YOLANG,ST_INJECT>"uint32"	{ return T_UINT32; }
 <ST_YOLANG,ST_INJECT>"uint64"	{ return T_UINT64; }
-<ST_YOLANG,ST_INJECT>"uint"	{ return sizeof(int) == 8 ? T_UINT64 : T_UINT32; }
+<ST_YOLANG,ST_INJECT>"uint"	{ return T_UINT; }
 
+<ST_YOLANG,ST_INJECT>"intptr" { return T_INTPTR; }
 <ST_YOLANG,ST_INJECT>"uintptr" { return T_UINTPTR; }
 
 <ST_YOLANG,ST_INJECT>"float32"|"float" { return T_FLOAT32; }
@@ -185,6 +186,9 @@ CLOSE_BRACKET	= (")"|"}");
 <ST_YOLANG,ST_INJECT>"struct" { return T_STRUCT; }
 <ST_YOLANG,ST_INJECT>"class" { return T_CLASS; }
 <ST_YOLANG,ST_INJECT>"contract" { return T_CONTRACT; }
+<ST_YOLANG,ST_INJECT>"for" { return T_FOR; }
+<ST_YOLANG,ST_INJECT>"loop" { return T_LOOP; }
+<ST_YOLANG,ST_INJECT>"in" { return T_IN; }
 <ST_YOLANG,ST_INJECT>"if" { return T_IF; }
 <ST_YOLANG,ST_INJECT>"else" { return T_ELSE; }
 <ST_YOLANG,ST_INJECT>"elseif" { return T_ELSEIF; }

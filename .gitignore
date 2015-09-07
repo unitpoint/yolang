@@ -16,3 +16,5 @@ build
 3rdparty/x
 3rdparty/yolang.output
 3rdparty/llvm/mybuilddir
+win/yolang-ext-dll
+win/yolang-ext-lib

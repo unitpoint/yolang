@@ -102,6 +102,7 @@ struct YoParserLocation
 
 struct YoParserStackElement
 {
+	int op;
 	YoParserLocation loc;
 	YoParserNode * node;
 	YoParserStackElement();
@@ -173,11 +174,13 @@ public:
 	~YoParser();
 
 	bool isError() const;
+
+
 	void dumpError();
 	void dumpErrorLine(int line, int pos);
 	void dumpErrorLine(const YoParserToken& token);
 
-	int run();
+	bool run();
 	void dump();
 
 	void setLine(const char*, int line);

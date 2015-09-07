@@ -153,11 +153,12 @@ public:
 		{
 			Type * type;
 			// std::string name;
-			bool isMutable;
+			// bool isMutable;
 
-			Arg(){ type = NULL; isMutable = false; }
+			Arg(){ type = NULL; } // isMutable = false;
 			// Arg(Type * t, const std::string& n, bool m): name(n){ type = t; isMutable = m; }
-			Arg(Type * t, bool m){ type = t; isMutable = m; }
+			// Arg(Type * t, bool m){ type = t; isMutable = m; }
+			Arg(Type * t){ type = t; }
 		};
 
 		std::vector<Arg> args;
@@ -212,7 +213,7 @@ public:
 
 		Type * type;
 		bool isArg;
-		bool isMutable;
+		// bool isMutable;
 		bool isInitialized;
 		bool isChanged;
 		bool isUsed;
@@ -359,6 +360,10 @@ public:
 		OP_BIN_POWF,
 		OP_BIN_POWI,
 
+		OP_BIT_OR,
+		OP_BIT_AND,
+		OP_BIT_XOR,
+
 		OP_CMP_EQ,
 		OP_CMP_NE,
 		OP_CMP_LE,
@@ -464,8 +469,7 @@ public:
 
 	bool run();
 
-	void setExternFuncs(const std::map<std::string, void*>&);
-	void addExternFunc(const std::string& name, void*);
+	void addSymbol(const std::string& name, void*);
 
 	void dump();
 	void dumpError();
@@ -511,7 +515,7 @@ protected:
 	std::vector<std::string> constStrings;
 
 	std::map<std::string, Type*> globalTypes;
-	std::map<std::string, void*> externFuncs;
+	std::map<std::string, void*> symbols;
 
 	Operation * newOperation(EOperation, YoParserNode*);
 	Operation * newOperation(EOperation, Operation * sub, Type * type, YoParserNode*);
@@ -536,6 +540,8 @@ protected:
 	Type * getType(EType);
 	Type * getVoidPtrType();
 	Type * getIntType(int bits, bool isSigned);
+	Type * getIntType(bool isSigned);
+	Type * getIntPtrType(bool isSigned);
 	Type * getFloatType(int bits);
 
 	Type * getMutType(Type*, YoParserNode*);
@@ -557,11 +563,16 @@ protected:
 	Type * getPtrOrRefSubType(Type * ptrType, YoParserNode* = NULL);
 	Type * getValueType(Operation * op);
 
-	Type * skipTypeMod(Type * type);
+	bool isMutable(Type*);
+
+	Type * addMut(Type * type, bool isMutable);
+	Type * removeMut(Type * type, bool& isMutable);
 	Type * getRefFromPtrType(Type * type, YoParserNode* = NULL);
 	Type * getPtrFromRefType(Type * type, YoParserNode* = NULL);
 
-	bool matchTypeTemplate(Scope*, Type *& src, Type * dst);
+	bool matchTypeTemplate(Scope*, Type *& src, Type * dst, bool init);
+
+	std::string getFuncNativeTypeName(FuncNativeType*);
 	void updateFuncNativeType(FuncNativeType*);
 
 	StackValue * allocTempValue(Scope*, Type * type, const std::string& name, YoParserNode*);
@@ -593,6 +604,7 @@ protected:
 	Operation * compilePowOp(Scope*, YoParserNode*);
 	Operation * compileCompareOp(Scope*, YoParserNode*);
 	Operation * compileLogicalOp(Scope*, YoParserNode*);
+	Operation * compileBitOp(Scope*, YoParserNode*);
 	Operation * compileDotOp(Scope*, Operation * left, YoParserNode * right, YoParserNode*);
 	Operation * compileOp(Scope*, YoParserNode*);
 	Operation * compileQuotedString(Scope*, YoParserNode*);
@@ -606,8 +618,9 @@ protected:
 
 	Operation * convertPtrToType(Scope*, Operation*, Type*, YoParserNode*);
 	Operation * convertOpToType(Scope*, Operation*, Type*, EConvertType, YoParserNode*);
-	Operation * convertOpToExtern(Scope*, Operation*, YoParserNode*);
-	Operation * getValue(Scope*, Operation*);
+	Operation * convertArgToType(Scope*, Operation*, Type*, bool isExtern, YoParserNode*);
+	Operation * getValue(Scope*, Operation*, YoParserNode*);
+	Operation * getAddr(Scope*, Operation*, YoParserNode*);
 
 	Operation * optimizeOpPass1(Scope*, Operation*);
 	bool optimizeScopePass1(Scope*);

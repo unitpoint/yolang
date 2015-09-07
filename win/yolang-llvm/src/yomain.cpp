@@ -8,12 +8,39 @@
 
 extern int yodebug;
 
+// extern "C" __declspec(dllimport) int mysnprintf(char * buf, size_t size, const char * fmt, ...);
+// extern "C" int mysnprintf(char * buf, size_t size, const char * fmt, ...);
+
+struct YoExtern
+{
+	static int snprintf(char * buf, size_t size, const char * fmt, ...)
+	{
+		va_list va;
+		va_start(va, fmt);
+		int r = vsnprintf_s(buf, size, size, fmt, va);
+		va_end(va);
+		return r;
+	}
+
+	static void printf(const char * fmt, ...)
+	{
+		va_list va;
+		va_start(va, fmt);
+		int r = vprintf(fmt, va);
+		va_end(va);
+	}
+};
+
 void main()
 {
+	// LLVMLoadLibraryPermanently("c:\\Sources\\yolang\\win\\yolang-llvm\\yolang-ext-dll.Windows.dll");
+	// HANDLE h = LoadLibraryA("yolang-ext-dll.Windows.dll");
+
 #if YYDEBUG
 	// yodebug = 1;
 #endif
 
+	// const char * filename = "fannkuch.yo";
 	const char * filename = "test-llvm.yo";
 	// const char * filename = "test-01.yo";
 	FILE * f = fopen(filename, "rb");
@@ -37,7 +64,7 @@ void main()
 
 	for(;;){
 		YoParser parser(buf, size);
-		int i = parser.run();
+		parser.run();
 		if (parser.isError()) {
 			parser.dumpError();
 			break;
@@ -47,14 +74,15 @@ void main()
 		printf("\n======================\n\n");
 
 		YoProgCompiler progCompiler(&parser);
-		progCompiler.addExternFunc("printf", &printf);
-		
+		progCompiler.addSymbol("snprintf", &YoExtern::snprintf);
+		progCompiler.addSymbol("printf", &YoExtern::printf);
+
 		progCompiler.run();
 		if (progCompiler.isError()) {
 			progCompiler.dumpError();
 			break;
 		}
-		// progCompiler.dump();
+		progCompiler.dump();
 
 		YoLLVMCompiler llvmCompiler(&progCompiler);
 		if (llvmCompiler.run(YoLLVMCompiler::BUILD_DEBUG)) {

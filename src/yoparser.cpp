@@ -57,10 +57,13 @@ const char * yoTokenName(int token)
 	case T_INT16: return "int16";
 	case T_INT32: return "int32";
 	case T_INT64: return "int64";
+	case T_INT: return "int";
+	case T_INTPTR: return "intptr";
 	case T_UINT8: return "uint8";
 	case T_UINT16: return "uint16";
 	case T_UINT32: return "uint32";
 	case T_UINT64: return "uint64";
+	case T_UINT: return "uint";
 	case T_UINTPTR: return "uintptr";
 	case T_FLOAT32: return "float32";
 	case T_FLOAT64: return "float64";
@@ -719,9 +722,23 @@ void YoParser::dumpError()
 	dumpErrorLine(errorLine, errorLinePos);
 }
 
-int YoParser::run()
+bool YoParser::run()
 {
-	return yoparse(this);
+	int i = yoparse(this);
+	if (!module && !isError()) {
+		error = YoParser::ERROR_SYNTAX;
+		errorMsg = "No module";
+		errorLoc.first_column = 0;
+		errorLoc.first_line = 1;
+		errorLoc.last_column = 1;
+		errorLoc.last_line = 1;
+		errorLoc.token.str = input;
+		errorLoc.token.len = 1;
+		errorLoc.token.line = 1;
+		errorLine = line;
+		errorLinePos = text - lineStart;
+	}
+	return !isError();
 }
 
 void YoParser::pushState(int newState, const char * text)
@@ -1068,9 +1085,9 @@ static void yoParserDumpNode(YoParserNode * node, int depth, EYoParserNodeScopeT
 
 	case YO_NODE_DECL_TYPE:
 		printf("DECL TYPE ");
-		yoParserDumpNode(node->data.declVar.name, depth, YO_NODE_SCOPE_OP);
+		yoParserDumpNode(node->data.declType.name, depth, YO_NODE_SCOPE_OP);
 		printf(" ");
-		yoParserDumpNode(node->data.declVar.type, depth, YO_NODE_SCOPE_OP);
+		yoParserDumpNode(node->data.declType.type, depth, YO_NODE_SCOPE_OP);
 		break;
 
 	case YO_NODE_DECL_VAR:
@@ -1207,6 +1224,7 @@ YoParserNode * YoParser::newLocNode(YYLTYPE * loc)
 
 YoParserStackElement::YoParserStackElement()
 {
+	op = 0;
 	node = NULL;
 }
 
@@ -1588,6 +1606,7 @@ void yoParseEmpty(YYSTYPE * r, void * parm, YYLTYPE * loc)
 {
 	YoParser * parser = dynamic_cast<YoParser*>((YoParser*)parm);
 	r->node = NULL;
+	r->op = 0;
 	// YO_ASSERT(r->node == NULL);
 }
 
@@ -1820,6 +1839,7 @@ void yoParserError(YYSTYPE * r, const char * msg, void * parm, YYLTYPE * loc)
 	}
 
 	r->node = NULL;
+	r->op = 0;
 	parser->cursor = parser->limit;
 }
 

@@ -90,8 +90,8 @@ void yyerror(const char* s);
 
 %token T_MODULE T_IMPORT
 %token T_DOTDOTDOT
-%token T_INT8 T_INT16 T_INT32 T_INT64
-%token T_UINT8 T_UINT16 T_UINT32 T_UINT64 T_UINTPTR
+%token T_INT8 T_INT16 T_INT32 T_INT64 T_INT T_INTPTR
+%token T_UINT8 T_UINT16 T_UINT32 T_UINT64 T_UINT T_UINTPTR
 %token T_FLOAT32 T_FLOAT64
 %token T_STRING
 %token T_BOOL T_TRUE T_FALSE
@@ -114,6 +114,9 @@ void yyerror(const char* s);
 %token T_CLASS
 %token T_CONTRACT
 %token T_BRACE
+%token T_FOR
+%token T_LOOP
+%token T_IN
 %token T_IF
 %token T_ELSE
 %token T_ELSEIF
@@ -228,6 +231,7 @@ void yyerror(const char* s);
 
 file:
 		T_MODULE T_NAME end_newline module_stmt_list	{ yoParserModule(&$$, &$2, &$4, parm, &yyloc); }
+	|	error { yoParserError(&$$, yymsgbuf, parm, &yyloc); yyclearin; YYABORT; }
 
 empty:
 	/* empty */		{ yoParseEmpty(&$$, parm, &yyloc); }		
@@ -265,19 +269,24 @@ type_or_empty:
 		type
 	|	empty
 	
+mut_or_empty:
+		T_MUTABLE	{ $$.op = T_MUTABLE; }
+	|	empty
+	
+decl_var_list:
+		decl_var_elem
+	|	decl_var_list ',' decl_var_elem		{ yoParserList(&$$, &$1, &$3, parm, &yyloc); }
+	
+decl_var_elem:
+		mut_or_empty T_NAME type_or_empty	{ yoParserDeclVar(&$$, $1.op == T_MUTABLE, &$2, &$3, parm, &yyloc); }
+	|	mut_or_empty T_NAME type_or_empty T_ASSIGN expr {
+				yoParserDeclVar(&$1, $1.op == T_MUTABLE, &$2, &$3, parm, &yyloc); 
+				yoParserAssign(&$2, &$2, &$5, T_INIT_ASSIGN, parm, &yyloc); 
+				yoParserList(&$$, &$1, &$2, parm, &yyloc);
+			}
+	
 decl_var:
-		T_LET empty T_NAME type_or_empty		{ yoParserDeclVar(&$$, false, &$3, &$4, parm, &yyloc); }
-	|	T_LET T_MUTABLE T_NAME type_or_empty	{ yoParserDeclVar(&$$, true, &$3, &$4, parm, &yyloc); }
-	|	T_LET empty T_NAME type_or_empty T_ASSIGN expr {
-				yoParserDeclVar(&$1, true, &$3, &$4, parm, &yyloc); 
-				yoParserAssign(&$2, &$3, &$6, T_INIT_ASSIGN, parm, &yyloc); 
-				yoParserList(&$$, &$1, &$2, parm, &yyloc);
-			}
-	|	T_LET T_MUTABLE T_NAME type_or_empty T_ASSIGN expr {
-				yoParserDeclVar(&$1, true, &$3, &$4, parm, &yyloc); 
-				yoParserAssign(&$2, &$3, &$6, T_INIT_ASSIGN, parm, &yyloc); 
-				yoParserList(&$$, &$1, &$2, parm, &yyloc);
-			}
+		T_LET decl_var_list		{ $$ = $2; }
 
 decl_type:
 		T_TYPE T_NAME type_ext	{ yoParserDeclType(&$$, &$2, &$3, parm, &yyloc); }
@@ -342,6 +351,11 @@ block_stmt:
 
 loop_block:
 		T_OPEN_BRACE stmt_list '}'	{ $$ = $2; }
+*/
+
+/*
+loop_stmt:
+		empty
 */
 
 if_header:
@@ -581,10 +595,13 @@ type_std_name:
 	|	T_INT16		{ yoParserTypeStdName(&$$, T_INT16, parm, &yyloc); }
 	|	T_INT32		{ yoParserTypeStdName(&$$, T_INT32, parm, &yyloc); }
 	|	T_INT64		{ yoParserTypeStdName(&$$, T_INT64, parm, &yyloc); }
+	|	T_INT		{ yoParserTypeStdName(&$$, T_INT, parm, &yyloc); }
+	|	T_INTPTR	{ yoParserTypeStdName(&$$, T_INTPTR, parm, &yyloc); }
 	|	T_UINT8		{ yoParserTypeStdName(&$$, T_UINT8, parm, &yyloc); }
 	|	T_UINT16	{ yoParserTypeStdName(&$$, T_UINT16, parm, &yyloc); }
 	|	T_UINT32	{ yoParserTypeStdName(&$$, T_UINT32, parm, &yyloc); }
 	|	T_UINT64	{ yoParserTypeStdName(&$$, T_UINT64, parm, &yyloc); }
+	|	T_UINT		{ yoParserTypeStdName(&$$, T_UINT, parm, &yyloc); }
 	|	T_UINTPTR	{ yoParserTypeStdName(&$$, T_UINTPTR, parm, &yyloc); }
 	|	T_STRING	{ yoParserTypeStdName(&$$, T_STRING, parm, &yyloc); }
 	|	T_FLOAT32	{ yoParserTypeStdName(&$$, T_FLOAT32, parm, &yyloc); }
@@ -636,6 +653,16 @@ expr:
 		expr_base
 	|	qstr_with_inject
 	
+/*
+bin_op:
+		T_EQ	{ $$.op = T_EQ; }
+	|	T_NE	{ $$.op = T_NE; }
+	|	T_LE	{ $$.op = T_LE; }
+	|	T_GE	{ $$.op = T_GE; }
+	|	T_LT	{ $$.op = T_LT; }
+	|	T_GT	{ $$.op = T_GT; }
+*/
+
 expr_base:
 		expr_const_scalar
 	|	dotname
@@ -659,7 +686,7 @@ expr_base:
 	|	expr T_AND expr  	{ yoParserBinOp(&$$, &$1, &$3, T_AND, parm, &yyloc); }
 	|	expr T_ANDAND expr  { yoParserBinOp(&$$, &$1, &$3, T_ANDAND, parm, &yyloc); }
 	|	expr T_XOR expr  	{ yoParserBinOp(&$$, &$1, &$3, T_XOR, parm, &yyloc); }
-	|	expr T_XORXOR expr  { yoParserBinOp(&$$, &$1, &$3, T_XORXOR, parm, &yyloc); }
+/*	|	expr T_XORXOR expr  { yoParserBinOp(&$$, &$1, &$3, T_XORXOR, parm, &yyloc); } */
 	|	expr T_CHAN_ACCESS expr  { yoParserBinOp(&$$, &$1, &$3, T_CHAN_ACCESS, parm, &yyloc); }
 	|	expr T_DOT dotname  { yoParserBinOp(&$$, &$1, &$3, T_DOT, parm, &yyloc); }
 	|	expr '[' expr ']'	{ yoParserBinOp(&$$, &$1, &$3, T_INDEX, parm, &yyloc); }

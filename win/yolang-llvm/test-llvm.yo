@@ -27,9 +27,18 @@ func testPowI(a, b int) int {
 }
 */
 
+extern func snprintf(buf *mut byte, size uint, fmt *byte, ...) // [cdecl]
 extern func printf(fmt *byte, ...)
 
 func main() double {
+	let _i = 0b01010_u16, _j = 0b01101_i16
+	let _r = _i | _j
+	printf("0x%04X | 0x%04X => 0x%04X\n", _i, _j, _r)
+	
+	let mut buf [100]byte
+	snprintf(buf, sizeof buf, "test: 0x%04X, %d, %f, %d", 0x1234, 9876, 123.456_f32, 123)
+	printf("buf: %s\n", buf)
+	
 	/*
 	let b = true
 	
@@ -104,10 +113,11 @@ func main() double {
 	}
 	*/
 	let mut t = Test{300, 600, TestBytes{1, 2, 3}}
-	let test &Test = t
-	let r &TestBytes = *&*&test.c
+	let mut test &Test = t
+	let mut r &TestBytes = *&*&test.c
 	if true {
 		printf("TestBytes.b: %d\n", r.b as int)
+		r.b = 3
 		return r.b
 	}
 	

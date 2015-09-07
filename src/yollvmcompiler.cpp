@@ -18,6 +18,7 @@
 #include "llvm/ADT/Triple.h"
 #include "llvm/Target/TargetLibraryInfo.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Support/DynamicLibrary.h"
 
 using namespace llvm;
 
@@ -125,6 +126,7 @@ bool YoLLVMCompiler::run(EBuildType buildType)
 		setError(ERROR_UNREACHABLE, "Could not create ExecutionEngine: %s", errStr.c_str());
 		return false;
 	}
+	// module.llvmExecutionEngine->DisableSymbolSearching();
 
 	FunctionPassManager FPM(module.llvmModule);
 
@@ -366,6 +368,18 @@ llvm::Instruction::BinaryOps YoLLVMCompiler::getBinOp(YoProgCompiler::EOperation
 
 	case YoProgCompiler::OP_BIN_MOD:
 		return isFloat ? Instruction::BinaryOps::FRem : (isSigned ? Instruction::BinaryOps::SRem : Instruction::BinaryOps::URem);
+
+	case YoProgCompiler::OP_BIT_OR:
+		YO_ASSERT(!isFloat);
+		return Instruction::BinaryOps::Or;
+
+	case YoProgCompiler::OP_BIT_AND:
+		YO_ASSERT(!isFloat);
+		return Instruction::BinaryOps::And;
+
+	case YoProgCompiler::OP_BIT_XOR:
+		YO_ASSERT(!isFloat);
+		return Instruction::BinaryOps::Xor;
 	}
 	setError(ERROR_UNREACHABLE, "Error bin op: %d", (int)eop);
 	return Instruction::BinaryOps::Add;
@@ -498,6 +512,9 @@ llvm::Value * YoLLVMCompiler::compileOp(FuncParams * func, YoProgCompiler::Scope
 	case YoProgCompiler::OP_BIN_MUL:
 	case YoProgCompiler::OP_BIN_DIV:
 	case YoProgCompiler::OP_BIN_MOD:
+	case YoProgCompiler::OP_BIT_OR:
+	case YoProgCompiler::OP_BIT_AND:
+	case YoProgCompiler::OP_BIT_XOR:
 		YO_ASSERT(progOp->ops.size() == 2);
 		YO_ASSERT(progOp->type && progOp->ops[0]->type && progOp->ops[1]->type);
 		YO_ASSERT(progOp->ops[0]->type->etype == progOp->ops[1]->type->etype);
@@ -932,7 +949,11 @@ llvm::Function * YoLLVMCompiler::compileDeclFunc(ModuleParams * module, YoProgCo
 	FunctionType * ft = getFuncNativeType(progFunc->funcNativeType);
 	YO_ASSERT(ft);
 
-	Function * func = Function::Create(ft, Function::ExternalLinkage, progFunc->name, module->llvmModule);
+	std::string name = progFunc->name;
+	if (progFunc->funcNativeType->isExtern) {
+		name = "_" + name;
+	}
+	Function * func = Function::Create(ft, Function::ExternalLinkage, name, module->llvmModule);
 	YO_ASSERT(func);
 	func->setCallingConv(getCallingConv(progFunc->funcNativeType->conv));
 	progFunc->ext.index = funcs.size();
@@ -950,20 +971,6 @@ llvm::Function * YoLLVMCompiler::compileDeclFunc(ModuleParams * module, YoProgCo
 
 bool YoLLVMCompiler::compileScopeBody(FuncParams * func, YoProgCompiler::Scope * progScope)
 {
-	/*
-	BasicBlock * bb = BasicBlock::Create(*context, progScope->name); // , func->llvmFunc);
-
-	IRBuilder<> builder(*context);
-	builder.SetInsertPoint(bb);
-
-	FuncParams funcParams = *func;
-	// funcParams.module = module;
-	funcParams.builder = &builder;
-	// funcParams.stackValues = &stackValues;
-	// funcParams.argValues = &argValues;
-	// funcParams.llvmFunc = func;
-	*/
-
 	YoProgCompiler::Function * progFunc = progCompiler->getFunction(progScope);
 	for (int i = 0; i < (int)progScope->ops.size(); i++){
 		YoProgCompiler::Operation * progOp = progScope->ops[i];
@@ -977,8 +984,11 @@ bool YoLLVMCompiler::compileScopeBody(FuncParams * func, YoProgCompiler::Scope *
 
 bool YoLLVMCompiler::compileFuncBody(ModuleParams * module, YoProgCompiler::Function * progFunc, llvm::Function * func)
 {
-	if (progFunc->externFunc) {
-		module->llvmExecutionEngine->addGlobalMapping(func, progFunc->externFunc);
+	if (progFunc->funcNativeType->isExtern && progFunc->externFunc) {
+		// YO_ASSERT(progFunc->externFunc);
+		// module->llvmExecutionEngine->addGlobalMapping(func, progFunc->externFunc);
+		// llvm::sys::DynamicLibrary::AddSymbol(func->getName(), progFunc->externFunc);
+		llvm::sys::DynamicLibrary::AddSymbol(progFunc->name, progFunc->externFunc);
 		return true;
 	}
 	// Create a new basic block to start insertion into.
