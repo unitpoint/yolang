@@ -57,6 +57,7 @@ void yoParserNewObj(YYSTYPE * r, YYSTYPE * name, void * parm, YYLTYPE * loc);
 void yoParserNewObjExps(YYSTYPE * r, YYSTYPE * name, YYSTYPE * expr_list, void * parm, YYLTYPE * loc);
 void yoParserNewObjProps(YYSTYPE * r, YYSTYPE * name, YYSTYPE * prop_list, void * parm, YYLTYPE * loc);
 void yoParserNewLine(void*, YYLTYPE * loc);
+void yoParserDeclFunc(YYSTYPE * r, int op, YYSTYPE * self, YYSTYPE * name, YYSTYPE * args, YYSTYPE * type, YYSTYPE * body, bool isVarArgs, EYoCallingConv conv, void*, YYLTYPE * loc);
 void yoParserDeclFunc(YYSTYPE * r, int op, YYSTYPE * self, YYSTYPE * name, YYSTYPE * args, YYSTYPE * type, YYSTYPE * body, void*, YYLTYPE * loc);
 void yoParserContractFunc(YYSTYPE * r, int op, YYSTYPE * name, YYSTYPE * args, YYSTYPE * type, void*, YYLTYPE * loc);
 void yoParserContract(YYSTYPE * r, YYSTYPE * gen, YYSTYPE * e, YYSTYPE * a, void * parm, YYLTYPE * loc);
@@ -85,7 +86,7 @@ void yyerror(const char* s);
 %pure_parser
 %locations
 %error-verbose
-%expect 7
+%expect 5
 
 %token T_MODULE T_IMPORT
 %token T_DOTDOTDOT
@@ -104,7 +105,8 @@ void yyerror(const char* s);
 %token T_LET
 %token T_TYPE
 %token T_CHAN
-%token T_FUNC T_SUB_FUNC T_LAMBDA
+%token T_EXTERN
+%token T_FUNC T_SUB_FUNC T_LAMBDA T_EXTERN_FUNC
 %token T_GET
 %token T_SET
 %token T_CONST T_MUTABLE
@@ -460,6 +462,10 @@ type_ext:
 	|	type_class
 			
 top_decl_func:
+		T_EXTERN T_FUNC dotname '(' decl_arg_list ',' T_DOTDOTDOT ')' type_or_empty
+			{ yoParserDeclFunc(&$$, T_EXTERN_FUNC, NULL, &$3, &$5, &$9, NULL, true, YO_CALLING_C, parm, &yyloc); }
+	|	T_EXTERN T_FUNC dotname '(' decl_arg_list_or_empty ')' type_or_empty
+			{ yoParserDeclFunc(&$$, T_EXTERN_FUNC, NULL, &$3, &$5, &$7, NULL, false, YO_CALLING_C, parm, &yyloc); }
 	|	T_FUNC decl_self dotname '(' decl_arg_list_or_empty ')' type_or_empty '{' func_body '}'	
 			{ yoParserDeclFunc(&$$, T_FUNC, &$2, &$3, &$5, &$7, &$9, parm, &yyloc); }
 	|	T_GET decl_self dotname '(' decl_arg_list_or_empty ')' type '{' func_body '}'	

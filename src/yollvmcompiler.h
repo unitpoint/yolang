@@ -6,6 +6,7 @@
 #include "llvm/IR/Module.h"
 #include "llvm/PassManager.h"
 #include "llvm/IR/IRBuilder.h"
+#include "llvm/IR/CallingConv.h"
 
 class YoProgCompiler;
 class YoLLVMCompiler
@@ -45,6 +46,8 @@ public:
 
 	bool run(EBuildType);
 
+	// void setExternFuncs(const std::map<std::string, void*>&);
+
 protected:
 
 	struct ModuleParams
@@ -68,12 +71,16 @@ protected:
 	llvm::LLVMContext * context;
 	// llvm::IRBuilder<> * builder;
 	// llvm::Module * module;
+ 	// std::map<std::string, void*> externFuncs;
 	std::vector<llvm::Function*> funcs;
 	std::vector<YoProgCompiler::Function*> progFuncs;
 
 	std::vector<llvm::Type*> types;
+	std::map<llvm::Type*, YoProgCompiler::Type*> progTypesMap;
 	// llvm::ExecutionEngine * executionEngine;
 	// llvm::FunctionPassManager * funcPassManager;
+
+	llvm::CallingConv::ID getCallingConv(EYoCallingConv);
 
 	llvm::Type * getType(YoProgCompiler::Type*);
 	llvm::StructType * getStructType(YoProgCompiler::Type*);

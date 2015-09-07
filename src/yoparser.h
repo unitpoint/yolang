@@ -18,6 +18,12 @@
 #include "yolang-l.h"
 #include "yolang-y.h"
 
+enum EYoCallingConv {
+	YO_CALLING_DEFAULT,
+	YO_CALLING_C,
+	YO_CALLING_STDCALL,
+};
+
 enum EYoParserNodeType {
 	YO_NODE_EMPTY,
 	YO_NODE_MODULE,
@@ -342,6 +348,8 @@ struct YoParserNode
 			YoParserNode * type;
 			YoParserNode * body;
 			YoParserNode * end;
+			bool isVarArg;
+			EYoCallingConv conv;
 		} func;
 
 		struct {
@@ -389,5 +397,7 @@ struct YoParserNode
 
 const char * yoTokenName(int token);
 int yoParse(YoParser*);
+
+template <class T> bool yoParseInt(const char * str, const char * end, int radix, T& p_val);
 
 #endif // __YOPARSER_H__

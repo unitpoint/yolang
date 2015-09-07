@@ -171,6 +171,7 @@ CLOSE_BRACKET	= (")"|"}");
 
 <ST_YOLANG,ST_INJECT>"module" { return T_MODULE; }
 <ST_YOLANG,ST_INJECT>"import" { return T_IMPORT; }
+<ST_YOLANG,ST_INJECT>"extern" { return T_EXTERN; }
 <ST_YOLANG,ST_INJECT>"void" { return T_VOID; }
 <ST_YOLANG,ST_INJECT>"return" { return T_RETURN; }
 <ST_YOLANG,ST_INJECT>"let" { return T_LET; }

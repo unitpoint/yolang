@@ -77,7 +77,7 @@ const char * yoTokenName(int token)
 // =====================================================================
 
 template <class T>
-static bool parseInt(const char * str, const char * end, int radix, T& p_val)
+bool yoParseInt(const char * str, const char * end, int radix, T& p_val)
 {
 	T val = 0, prev_val = 0;
 	// const char * str = p_str;
@@ -179,7 +179,7 @@ bool parseFloat(const char * str, const char * end, double& p_val)
 				str++;
 			}
 			int pow;
-			if (!parseInt(str, end, 10, pow)) {
+			if (!yoParseInt(str, end, 10, pow)) {
 				p_val = 0;
 				return false;
 			}
@@ -269,21 +269,21 @@ int yoLexIntRadix(YYSTYPE * elem, int radix, int skipEnd, void * parm, YYLTYPE *
 	YO_BYTE val8 = 0;
 	switch (bits) {
 	case 8:
-		if (!parseInt(str, end, radix, val8)) {
+		if (!yoParseInt(str, end, radix, val8)) {
 			return 0;
 		}
 		val64 = val8;
 		break;
 
 	case 16:
-		if (!parseInt(str, end, radix, val16)) {
+		if (!yoParseInt(str, end, radix, val16)) {
 			return 0;
 		}
 		val64 = val16;
 		break;
 
 	case 32:
-		if (!parseInt(str, end, radix, val32)) {
+		if (!yoParseInt(str, end, radix, val32)) {
 			return 0;
 		}
 		val64 = val32;
@@ -294,7 +294,7 @@ int yoLexIntRadix(YYSTYPE * elem, int radix, int skipEnd, void * parm, YYLTYPE *
 		// no break
 
 	case 64:
-		if (!parseInt(str, end, radix, val64)) {
+		if (!yoParseInt(str, end, radix, val64)) {
 			return 0;
 		}
 		if (!skipEnd && sizeof(int)*8 == 32) {
@@ -415,6 +415,8 @@ int yoLexSingleQuotedString(YYSTYPE * elem, void * parm, YYLTYPE * loc)
 	YoParser * parser = dynamic_cast<YoParser*>((YoParser*)parm);
 	YO_ASSERT(parser->text[0] == '\'');
 	YO_ASSERT(parser->text + 1 == parser->cursor);
+	YO_ASSERT(parser->line == loc->first_line && loc->first_line == loc->last_line);
+	YO_ASSERT(loc->token.str == parser->text && loc->token.line == parser->line && loc->token.len == 1);
 	int line = parser->line;
 	const char * lineStart = parser->lineStart;
 	while (parser->cursor < parser->limit) {
@@ -427,16 +429,18 @@ int yoLexSingleQuotedString(YYSTYPE * elem, void * parm, YYLTYPE * loc)
 		}
 		if (parser->cursor[0] == '\'') {
 			parser->cursor++;
-			parser->textLen = parser->cursor - parser->text;
+			parser->textLen = loc->token.len = parser->cursor - parser->text;
 			YoParserNode * node = parser->newNode(YO_NODE_SINGLE_QUOTED_STRING, loc);
 			elem->node = node;
 			return T_SSTRING;
 		}
 		if (parser->cursor[0] == '\n') {
 			parser->setLine(parser->cursor + 1, parser->line + 1);
+			loc->last_line = parser->line;
 		}
 		else if (parser->cursor[0] == '\r' && parser->cursor + 1 < parser->limit && parser->cursor[1] == '\n'){
 			parser->setLine(parser->cursor + 2, parser->line + 1);
+			loc->last_line = parser->line;
 			parser->cursor++;
 		}
 		parser->cursor++;
@@ -451,6 +455,8 @@ int yoLexQuotedString(YYSTYPE * elem, void * parm, YYLTYPE * loc)
 	YoParser * parser = dynamic_cast<YoParser*>((YoParser*)parm);
 	YO_ASSERT(parser->text[0] == '\"' || parser->text[0] == '}');
 	YO_ASSERT(parser->text + 1 == parser->cursor);
+	YO_ASSERT(parser->line == loc->first_line && loc->first_line == loc->last_line);
+	YO_ASSERT(loc->token.str == parser->text && loc->token.line == parser->line && loc->token.len == 1);
 	int saveLine = parser->line;
 	const char * saveLineStart = parser->lineStart;
 	size_t saveLineCount = parser->lines.size();
@@ -464,14 +470,14 @@ int yoLexQuotedString(YYSTYPE * elem, void * parm, YYLTYPE * loc)
 		}
 		if (parser->cursor[0] == '\"') {
 			parser->cursor++;
-			parser->textLen = parser->cursor - parser->text;
+			parser->textLen = loc->token.len = parser->cursor - parser->text;
 			YoParserNode * node = parser->newNode(YO_NODE_QUOTED_STRING, loc);
 			elem->node = node;
 			return T_QSTRING;
 		}
 		if (parser->cursor[0] == '$' && parser->cursor + 1 < parser->limit && parser->cursor[1] == '{'){
 			parser->cursor++;
-			parser->textLen = parser->cursor - parser->text;
+			parser->textLen = loc->token.len = parser->cursor - parser->text;
 			YoParserNode * node = parser->newNode(YO_NODE_QUOTED_STRING, loc);
 			elem->node = node;
 			parser->cursor++;
@@ -481,9 +487,11 @@ int yoLexQuotedString(YYSTYPE * elem, void * parm, YYLTYPE * loc)
 		}
 		if (parser->cursor[0] == '\n') {
 			parser->setLine(parser->cursor + 1, parser->line + 1);
+			loc->last_line = parser->line;
 		}
 		else if (parser->cursor[0] == '\r' && parser->cursor + 1 < parser->limit && parser->cursor[1] == '\n'){
 			parser->setLine(parser->cursor + 2, parser->line + 1);
+			loc->last_line = parser->line;
 			parser->cursor++;
 		}
 		parser->cursor++;
@@ -782,6 +790,7 @@ static const char * yoFuncOpStr(int op)
 	switch (op) {
 	default: YO_ASSERT(false); break;
 	case T_FUNC: break;
+	case T_EXTERN_FUNC: return "EXTERN FUNC";
 	case T_GET: return "GET";
 	case T_SET: return "SET";
 	case T_SUB_FUNC: return "SUB FUNC";
@@ -1594,10 +1603,10 @@ void yoParserCast(YYSTYPE * r, YYSTYPE * expr, YYSTYPE * type, void * parm, YYLT
 	r->node = node;
 }
 
-void yoParserDeclFunc(YYSTYPE * r, int op, YYSTYPE * self, YYSTYPE * name, YYSTYPE * args, YYSTYPE * type, YYSTYPE * body, void * parm, YYLTYPE * loc)
+void yoParserDeclFunc(YYSTYPE * r, int op, YYSTYPE * self, YYSTYPE * name, YYSTYPE * args, YYSTYPE * type, YYSTYPE * body, bool isVarArg, EYoCallingConv conv, void * parm, YYLTYPE * loc)
 {
 	YoParser * parser = dynamic_cast<YoParser*>((YoParser*)parm);
-	YO_ASSERT(body);
+	YO_ASSERT(body || op == T_EXTERN_FUNC);
 	YO_ASSERT(!type || !type->node || type->node->isType());
 	YO_ASSERT(!name || name->node && (name->node->type == YO_NODE_NAME || name->node->type == YO_NODE_DOTNAME));
 	// YO_ASSERT(args->node && args->node->type == );
@@ -1608,10 +1617,17 @@ void yoParserDeclFunc(YYSTYPE * r, int op, YYSTYPE * self, YYSTYPE * name, YYSTY
 	node->data.func.type = type ? type->node : NULL;
 	node->data.func.name = name ? name->node : NULL;
 	node->data.func.args = args ? args->node : NULL;
-	node->data.func.body = body->node;
+	node->data.func.body = body ? body->node : NULL;
 	node->data.func.end = parser->newLocNode(loc);
+	node->data.func.isVarArg = isVarArg;
+	node->data.func.conv = conv;
 	// node->token = name ? name->node->token : args->node->token;
 	r->node = node;
+}
+
+void yoParserDeclFunc(YYSTYPE * r, int op, YYSTYPE * self, YYSTYPE * name, YYSTYPE * args, YYSTYPE * type, YYSTYPE * body, void * parm, YYLTYPE * loc)
+{
+	yoParserDeclFunc(r, op, self, name, args, type, body, false, YO_CALLING_DEFAULT, parm, loc);
 }
 
 void yoParserTypeFunc(YYSTYPE * r, int op, YYSTYPE * self, YYSTYPE * args, YYSTYPE * type, void * parm, YYLTYPE * loc)

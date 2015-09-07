@@ -47,6 +47,8 @@ void main()
 		printf("\n======================\n\n");
 
 		YoProgCompiler progCompiler(&parser);
+		progCompiler.addExternFunc("printf", &printf);
+		
 		progCompiler.run();
 		if (progCompiler.isError()) {
 			progCompiler.dumpError();

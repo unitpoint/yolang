@@ -123,6 +123,9 @@ void YoProgCompiler::StructType::updateNameIndices()
 YoProgCompiler::FuncNativeType::FuncNativeType(const std::string& p_name, YoParserNode * p_node) :
 	Type(p_name, TYPE_FUNC_NATIVE, p_node)
 {
+	isExtern = false;
+	isVarArg = false;
+	conv = YO_CALLING_DEFAULT;
 	resType = NULL;
 	funcDataType = NULL;
 }
@@ -222,6 +225,7 @@ YoProgCompiler::Function::Function(Scope * p_parent, FuncNativeType * p_funcNati
 	Scope(p_parent, SCOPE_FUNCTION, p_name, p_node), argNames(p_argNames)
 {
 	funcNativeType = p_funcNativeType;
+	externFunc = NULL;
 	ext.index = -1;
 }
 
@@ -1191,6 +1195,27 @@ void YoProgCompiler::updateFuncNativeType(FuncNativeType * funcType)
 		globalTypes.erase(it);
 	}
 	std::ostringstream buf;
+
+	if (funcType->isExtern) {
+		buf << "extern ";
+	}
+	switch (funcType->conv) {
+	case YO_CALLING_C:
+		buf << "\"C\" ";
+		break;
+
+	case YO_CALLING_STDCALL:
+		buf << "\"stdcall\" ";
+		break;
+
+	case YO_CALLING_DEFAULT:
+		break;
+
+	default:
+		setError(ERROR_UNREACHABLE, funcType->parserNode, "Error calling conv: %d", (int)funcType->conv);
+		return;
+	}
+
 	buf << "func(";
 	for (int i = 0; i < (int)funcType->args.size(); i++) {
 		if (i > 0) {
@@ -1210,24 +1235,48 @@ YoProgCompiler::FuncNativeType * YoProgCompiler::getFuncNativeType(std::vector<s
 {
 	YO_ASSERT(node && (node->type == YO_NODE_DECL_FUNC || node->type == YO_NODE_TYPE_FUNC));
 	FuncNativeType * funcType = new FuncNativeType("", node);
-	// FuncNativeType::Arg funcArg;
-	// std::vector<Type*> argTypes;
-	// std::vector<std::string> argNames;
+	funcType->isExtern = node->data.func.op == T_EXTERN_FUNC;
+	funcType->isVarArg = node->data.func.isVarArg;
+	funcType->conv = node->data.func.conv;
 
 	std::ostringstream buf;
+
+	if (funcType->isExtern) {
+		buf << "extern ";
+	}
+	switch (funcType->conv) {
+	case YO_CALLING_C:
+		buf << "\"C\" ";
+		break;
+	
+	case YO_CALLING_STDCALL:
+		buf << "\"stdcall\" ";
+		break;
+
+	case YO_CALLING_DEFAULT:
+		break;
+
+	default:
+		setError(ERROR_UNREACHABLE, node, "Error calling conv: %d", (int)funcType->conv);
+		delete funcType;
+		return NULL;
+	}
+
 	buf << "func(";
 
 	if (node->data.func.self) {
 
 	}
 
-	std::vector<Type*> emptyTypes;
-	Type * closureAddr = getPtrType(getStructType(emptyTypes, node), node);
-	buf << closureAddr->name;
-	funcType->args.push_back(FuncNativeType::Arg(closureAddr, false));
+	if (!funcType->isExtern) {
+		std::vector<Type*> emptyTypes;
+		Type * closureAddr = getPtrType(getStructType(emptyTypes, node), node);
+		buf << closureAddr->name;
+		funcType->args.push_back(FuncNativeType::Arg(closureAddr, false));
 
-	argNames.clear();
-	argNames.push_back("#closureAddr");
+		argNames.clear();
+		argNames.push_back("#closureAddr");
+	}
 
 	std::vector<YoParserNode*> argNodes;
 	collectNodesInReversList(argNodes, node->data.func.args);
@@ -1251,9 +1300,9 @@ YoProgCompiler::FuncNativeType * YoProgCompiler::getFuncNativeType(std::vector<s
 		}
 		bool isMutable = argNode->data.declVar.isMutable;
 		for (int i = (int)nameArgs.size()-1; i >= 0; i--) {
-			// if (argTypes.size() > 0) {
-			buf << ",";
-			// }
+			if (funcType->args.size() > 0) {
+				buf << ",";
+			}
 			if (isMutable) {
 				buf << "mut ";
 			}
@@ -1271,6 +1320,10 @@ YoProgCompiler::FuncNativeType * YoProgCompiler::getFuncNativeType(std::vector<s
 			funcType->args.push_back(FuncNativeType::Arg(argType, isMutable));
 			argNames.push_back(argName);
 		}
+	}
+	if (funcType->isVarArg) {
+		YO_ASSERT(funcType->isExtern);
+		buf << ",...";
 	}
 	buf << ")";
 	if (node->data.func.type) {
@@ -1560,6 +1613,7 @@ YoProgCompiler::Function * YoProgCompiler::compileFunc(Scope * scope, YoParserNo
 {
 	YO_ASSERT(node && node->type == YO_NODE_DECL_FUNC);
 	YO_ASSERT(node->data.func.op == T_FUNC && scope->escope == SCOPE_MODULE 
+		|| node->data.func.op == T_EXTERN_FUNC && scope->escope == SCOPE_MODULE
 		|| node->data.func.op == T_SUB_FUNC && scope->escope != SCOPE_MODULE
 		|| node->data.func.op == T_LAMBDA && scope->escope != SCOPE_MODULE);
 	YO_ASSERT(!node->data.func.self);
@@ -1579,6 +1633,20 @@ YoProgCompiler::Function * YoProgCompiler::compileFunc(Scope * scope, YoParserNo
 	FuncNativeType * funcNativeType = getFuncNativeType(argNames, scope, node);
 	Function * func = new Function(scope, funcNativeType, argNames, name, node);
 	getModule(scope)->funcs.push_back(func);
+
+	if (funcNativeType->isExtern) {
+		if (node->data.func.body) {
+			setError(ERROR_UNREACHABLE, node, "Extern function %s should not have body", name.c_str());
+			return NULL;
+		}
+		std::map<std::string, void*>::iterator it = externFuncs.find(name);
+		if (it == externFuncs.end() || !it->second) {
+			setError(ERROR_LINK_EXTERN_FUNC, node, "Error to link extern function %s", name.c_str());
+			return NULL;
+		}
+		func->externFunc = it->second;
+		return func;
+	}
 
 	for (int i = 0; i < (int)funcNativeType->args.size(); i++) {
 		FuncNativeType::Arg& arg = funcNativeType->args[i];
@@ -1855,6 +1923,67 @@ YoProgCompiler::Operation * YoProgCompiler::compileValue(Scope * scope, YoParser
 	return getValue(scope, compileOp(scope, node));
 }
 
+std::string YoProgCompiler::getConstStr(int i)
+{
+	return constStrings[i];
+}
+
+YoProgCompiler::Operation * YoProgCompiler::compileQuotedString(Scope * scope, YoParserNode * node)
+{
+	YO_ASSERT(node && node->type == YO_NODE_QUOTED_STRING);
+
+	const char * s = node->token.str + 1;
+	const char * end = s + (node->token.len - 2);
+	std::ostringstream buf;
+	for (; s < end;) {
+		if (*s == '\\') {
+			YO_BYTE c;
+			const char * hexEnd;
+			switch (s[1]) {
+			case 'r': buf << '\r'; break;
+			case 'n': buf << '\n'; break;
+			case 't': buf << '\t'; break;
+			case 'v': buf << '\v'; break;
+			case 'b': buf << '\b'; break;
+			case 'f': buf << '\f'; break;
+			case '\"': buf << '\"'; break;
+			case '\\': buf << '\\'; break;
+			default: buf << s[1]; break;
+			case 'x':
+				if (s + 2 < end) {
+					s += 2;
+					hexEnd = s + 2 > end ? end : s + 2;
+					if (yoParseInt(s, hexEnd, 16, c)) {
+						buf << c;
+						s = hexEnd;
+						continue;
+					}
+				}
+				setError(ERROR_ESCAPE_CHAR, node, "Error hex char");
+				return NULL;
+			}
+			s += 2;
+		}
+		else{
+			buf << *s++;
+		}
+	}
+	int strIndex;
+	std::string str = buf.str();
+	std::map<std::string, int>::iterator it = constStringsMap.find(str);
+	if (it == constStringsMap.end()) {
+		constStringsMap[str] = strIndex = constStrings.size();
+		constStrings.push_back(str);
+	}
+	else{
+		strIndex = it->second;
+	}
+	Operation * op = newOperation(OP_CONST_STRING, node);
+	op->strIndex = strIndex;
+	op->type = getPtrType(getType(TYPE_UINT8));
+	return op;
+}
+
 YoProgCompiler::Operation * YoProgCompiler::compileOp(Scope * scope, YoParserNode * node)
 {
 	YO_ASSERT(node);
@@ -1898,6 +2027,9 @@ YoProgCompiler::Operation * YoProgCompiler::compileOp(Scope * scope, YoParserNod
 		op->constFloat.fval = node->data.constFloat.fval;
 		op->type = getType(TYPE_FLOAT64);
 		return op;
+
+	case YO_NODE_QUOTED_STRING:
+		return compileQuotedString(scope, node);
 
 	case YO_NODE_NAME:
 		name = getTokenStr(node);
@@ -2116,15 +2248,6 @@ YoProgCompiler::Operation * YoProgCompiler::compileCall(Scope * scope, YoParserN
 			setError(ERROR_UNREACHABLE, nameOp->stackValue->parserNode, "Type required");
 			return NULL;
 		}
-		/* if (nameOp->stackValue->type->etype == TYPE_PTR) {
-			Type * funcType = getPtrSubType(nameOp->stackValue->type);
-			if (funcType->etype == TYPE_FUNC_NATIVE) {
-				YO_ASSERT(dynamic_cast<FuncNativeType*>(funcType));
-				FuncNativeType * funcNativeType = (FuncNativeType*)funcType;
-				FuncDataType * funcDataType = getFuncDataType(funcNativeType);
-				nameOp = convertOpToType(scope, nameOp, funcDataType, CONVERT_AUTO, node);
-			}
-		} */
 		if (nameOp->stackValue->type->etype != TYPE_FUNC_DATA || !dynamic_cast<FuncDataType*>(nameOp->stackValue->type)){
 			setError(ERROR_TYPE, nameOp->stackValue->parserNode, "Func type required, found: %s", nameOp->stackValue->type->name.c_str());
 			return NULL;
@@ -2174,34 +2297,58 @@ YoProgCompiler::Operation * YoProgCompiler::compileCall(Scope * scope, YoParserN
 		return op;
 	}
 	if (nameOp->eop == OP_FUNC) {
-		Operation * nullOp = newOperation(OP_CONST_NULL, node);
-		nullOp->type = getVoidPtrType();
-		nullOp = convertPtrToType(scope, nullOp, nameOp->func->funcNativeType->args[0].type, node);
-		if (!nullOp) {
-			YO_ASSERT(isError());
-			return NULL;
-		}
-
 		Operation * op = newOperation(OP_CALL_FUNC, node);
 		op->callFunc.func = nameOp->func;
 		op->type = nameOp->func->funcNativeType->resType;
 		// op->ops.push_back(newOperation(OP_NOP, node));
 		op->ops.push_back(nameOp);
-		op->ops.push_back(nullOp);
+
+		int extraArgs = 1;
+		if (!nameOp->func->funcNativeType->isExtern) {
+			Operation * nullOp = newOperation(OP_CONST_NULL, node);
+			nullOp->type = getVoidPtrType();
+			nullOp = convertPtrToType(scope, nullOp, nameOp->func->funcNativeType->args[0].type, node);
+			if (!nullOp) {
+				YO_ASSERT(isError());
+				return NULL;
+			}
+			op->ops.push_back(nullOp);
+		}
+		else{
+			extraArgs = 0;
+		}
+		op->callFunc.extraArgs = extraArgs;
 
 		std::vector<YoParserNode*> argNodes;
 		collectNodesInReversList(argNodes, node->data.call.args);
 		op->callFunc.args = argNodes.size();
 
-		if (op->callFunc.args != nameOp->func->funcNativeType->args.size()-1) {
-			setError(ERROR_CALL_ARGS_NUMBER, node, "Error call args number %d, required %d", op->callClosure.args, nameOp->func->funcNativeType->args.size()-1);
+		int minArgsNumber = nameOp->func->funcNativeType->args.size() - extraArgs;
+		if (op->callFunc.args < minArgsNumber || (!nameOp->func->funcNativeType->isVarArg && op->callFunc.args != minArgsNumber)) {
+			setError(ERROR_CALL_ARGS_NUMBER, node, "Error call args number %d, required %d", op->callClosure.args, nameOp->func->funcNativeType->args.size() - extraArgs);
 			return NULL;
 		}
+		if (nameOp->func->funcNativeType->isVarArg) {
+			if (nameOp->func->funcNativeType->isExtern) {
+				// it's OK already
+			}
+			else{
+				if (op->callFunc.args > minArgsNumber) {
+					setError(ERROR_UNREACHABLE, node, "Var args is not supported yet, args number %d, required %d", op->callClosure.args, nameOp->func->funcNativeType->args.size() - extraArgs);
+					return NULL;
+				}
+			}
+		}
 
-		YO_ASSERT(nameOp->func->funcNativeType->args.size() - 1/*closure*/ == argNodes.size());
 		for (int i = 0; i < (int)argNodes.size(); i++) {
+			// in reverse order
 			Operation * argOp = compileOp(scope, argNodes[argNodes.size() - 1 - i]);
-			argOp = convertOpToType(scope, argOp, nameOp->func->funcNativeType->args[i + 1].type, CONVERT_AUTO, node);
+			if (i + extraArgs < (int)nameOp->func->funcNativeType->args.size()) {
+				argOp = convertOpToType(scope, argOp, nameOp->func->funcNativeType->args[i + extraArgs].type, CONVERT_AUTO, node);
+			}
+			if (nameOp->func->funcNativeType->isExtern) {
+				argOp = convertOpToExtern(scope, argOp, node);
+			}
 			if (!argOp) {
 				YO_ASSERT(isError());
 				return NULL;
@@ -2221,6 +2368,16 @@ YoProgCompiler::StackValue * YoProgCompiler::allocTempValue(Scope * scope, Type 
 	temp->isMutable = true;
 	temp->isTemp = true;
 	return temp;
+}
+
+void YoProgCompiler::setExternFuncs(const std::map<std::string, void*>& p_externFuncs)
+{
+	externFuncs = p_externFuncs;
+}
+
+void YoProgCompiler::addExternFunc(const std::string& name, void * addr)
+{
+	externFuncs[name] = addr;
 }
 
 YoProgCompiler::Operation * YoProgCompiler::newOperation(EOperation eop, YoParserNode * node)
@@ -3568,6 +3725,29 @@ YoProgCompiler::Operation * YoProgCompiler::convertPtrToType(Scope * scope, Oper
 	return convertOp;
 	*/
 	return convertOpToType(scope, op, type, CONVERT_AUTO, node);
+}
+
+YoProgCompiler::Operation * YoProgCompiler::convertOpToExtern(Scope * scope, Operation * op, YoParserNode * node)
+{
+	Type * type = getValueType(op);
+	switch (type->etype) {
+	case TYPE_BOOL:
+	case TYPE_INT8:
+	case TYPE_INT16:
+	case TYPE_INT32:
+	case TYPE_INT64:
+	case TYPE_UINT8:
+	case TYPE_UINT16:
+	case TYPE_UINT32:
+	case TYPE_UINT64:
+	case TYPE_FLOAT32:
+	case TYPE_FLOAT64:
+	case TYPE_PTR:
+	// case TYPE_REF:
+		return op;
+	}
+	setError(ERROR_TYPE, op->parserNode, "Error extern type %s", type->name.c_str());
+	return NULL;
 }
 
 YoProgCompiler::Operation * YoProgCompiler::convertOpToType(Scope * scope, Operation * op, Type * type, EConvertType convertType, YoParserNode * node)

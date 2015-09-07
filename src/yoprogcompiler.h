@@ -31,6 +31,8 @@ public:
 		ERROR_CALL_ARGS_NUMBER,
 		ERROR_RETURN_IN_MIDDLE,
 		ERROR_RETURN_REQUIRED,
+		ERROR_ESCAPE_CHAR,
+		ERROR_LINK_EXTERN_FUNC,
 	};
 
 	enum EType
@@ -159,6 +161,9 @@ public:
 		};
 
 		std::vector<Arg> args;
+		EYoCallingConv conv;
+		bool isVarArg;
+		bool isExtern;
 		Type * resType;
 
 		FuncDataType * funcDataType;
@@ -258,6 +263,7 @@ public:
 
 		FuncNativeType * funcNativeType;
 		std::vector<std::string> argNames;
+		void * externFunc;
 
 		struct {
 			int index;
@@ -324,6 +330,7 @@ public:
 		OP_CONST_NULL,
 		OP_CONST_INT,
 		OP_CONST_FLOAT,
+		OP_CONST_STRING,
 		
 		OP_SIZEOF,
 		OP_TYPE,
@@ -418,6 +425,7 @@ public:
 
 			struct {
 				Function * func;
+				int extraArgs;
 				int args;
 			} callFunc;
 
@@ -426,6 +434,8 @@ public:
 				Scope * thenScope;
 				Scope * elseScope;
 			} stmtIf;
+
+			int strIndex;
 		};
 
 		Operation(EOperation, YoParserNode*);
@@ -453,6 +463,10 @@ public:
 	bool isError() const;
 
 	bool run();
+
+	void setExternFuncs(const std::map<std::string, void*>&);
+	void addExternFunc(const std::string& name, void*);
+
 	void dump();
 	void dumpError();
 
@@ -465,6 +479,7 @@ public:
 	Type * getSubType(Type * ptrType, YoParserNode* = NULL);
 
 	static std::string getTokenStr(YoParserNode*);
+	std::string getConstStr(int i);
 
 	Function * getFunction(Scope*);
 	Module * getModule(Scope*);
@@ -492,7 +507,11 @@ protected:
 
 	std::vector<Operation*> ops;
 
+	std::map<std::string, int> constStringsMap;
+	std::vector<std::string> constStrings;
+
 	std::map<std::string, Type*> globalTypes;
+	std::map<std::string, void*> externFuncs;
 
 	Operation * newOperation(EOperation, YoParserNode*);
 	Operation * newOperation(EOperation, Operation * sub, Type * type, YoParserNode*);
@@ -576,6 +595,7 @@ protected:
 	Operation * compileLogicalOp(Scope*, YoParserNode*);
 	Operation * compileDotOp(Scope*, Operation * left, YoParserNode * right, YoParserNode*);
 	Operation * compileOp(Scope*, YoParserNode*);
+	Operation * compileQuotedString(Scope*, YoParserNode*);
 	Operation * compileValue(Scope*, YoParserNode*);
 
 	enum EConvertType
@@ -586,6 +606,7 @@ protected:
 
 	Operation * convertPtrToType(Scope*, Operation*, Type*, YoParserNode*);
 	Operation * convertOpToType(Scope*, Operation*, Type*, EConvertType, YoParserNode*);
+	Operation * convertOpToExtern(Scope*, Operation*, YoParserNode*);
 	Operation * getValue(Scope*, Operation*);
 
 	Operation * optimizeOpPass1(Scope*, Operation*);

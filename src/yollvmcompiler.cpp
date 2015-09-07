@@ -81,6 +81,11 @@ bool YoLLVMCompiler::isError() const
 	return error != ERROR_NOTHING;
 }
 
+/* void YoLLVMCompiler::setExternFuncs(const std::map<std::string, void*>& p_externFuncs)
+{
+	externFuncs = p_externFuncs;
+} */
+
 bool YoLLVMCompiler::run(EBuildType buildType)
 {
 	if (progCompiler->isError()) {
@@ -267,10 +272,11 @@ llvm::FunctionType * YoLLVMCompiler::getFuncNativeType(YoProgCompiler::Type * _p
 		argTypes.push_back(argType);
 	}
 	Type * resType = getType(progType->resType);
-	FunctionType * funcType = FunctionType::get(resType, argTypes, false);
+	FunctionType * funcType = FunctionType::get(resType, argTypes, progType->isVarArg);
 	YO_ASSERT(funcType);
 	progType->ext.index = types.size();
 	types.push_back(funcType);
+	progTypesMap[funcType] = progType;
 	return funcType;
 }
 
@@ -450,6 +456,10 @@ llvm::Value * YoLLVMCompiler::compileOp(FuncParams * func, YoProgCompiler::Scope
 		YO_ASSERT(progOp->ops.size() == 0);
 		return ConstantInt::get(getType(progOp->type),
 			APInt(progOp->constInt.bits, progOp->constInt.val, progOp->constInt.isSigned));
+
+	case YoProgCompiler::OP_CONST_STRING:
+		YO_ASSERT(progOp->ops.size() == 0);
+		return func->builder->CreateGlobalStringPtr(progCompiler->getConstStr(progOp->strIndex));
 
 	case YoProgCompiler::OP_CONST_FLOAT:
 		YO_ASSERT(progOp->ops.size() == 0);
@@ -833,7 +843,9 @@ llvm::Value * YoLLVMCompiler::compileCall(FuncParams * func, YoProgCompiler::Sco
 
 	// YoProgCompiler::FuncDataType * funcDataType = progOp->call.funcDataType;
 	// int numArgs = funcDataType->funcNativeType->argTypes.size();
-	int i, startArg = progOp->ops.size() - (progOp->eop == YoProgCompiler::OP_CALL_CLOSURE ? progOp->callClosure.args : progOp->callFunc.args) - 2;
+	bool isClosureCall = progOp->eop == YoProgCompiler::OP_CALL_CLOSURE;
+	int extraArgs = isClosureCall ? 1 : progOp->callFunc.extraArgs;
+	int i, startArg = progOp->ops.size() - (isClosureCall ? progOp->callClosure.args : progOp->callFunc.args) - extraArgs - 1;
 
 	for (i = 0; i < startArg; i++) {
 		Value * arg = compileOp(func, progScope, progOp->ops[i]);
@@ -843,12 +855,16 @@ llvm::Value * YoLLVMCompiler::compileCall(FuncParams * func, YoProgCompiler::Sco
 		}
 	}
 	
-	Value * funcAddr = compileOp(func, progScope, progOp->ops[startArg + 0]);
-	Value * closureAddr = compileOp(func, progScope, progOp->ops[startArg+1]);
-
 	std::vector<Value*> args;
-	args.push_back(closureAddr);
-	for (i = startArg + 2; i < (int)progOp->ops.size(); i++) {
+	Value * funcAddr = compileOp(func, progScope, progOp->ops[startArg + 0]);
+	
+	if (extraArgs > 0) {
+		YO_ASSERT(extraArgs == 1);
+		Value * closureAddr = compileOp(func, progScope, progOp->ops[startArg + 1]);
+		args.push_back(closureAddr);
+	}
+
+	for (i = startArg + 1 + extraArgs; i < (int)progOp->ops.size(); i++) {
 		Value * arg = compileOp(func, progScope, progOp->ops[i]);
 		if (!arg) {
 			YO_ASSERT(isError());
@@ -880,10 +896,26 @@ llvm::Value * YoLLVMCompiler::compileSubFunc(llvm::IRBuilder<> * builder, std::v
 }
 */
 
+llvm::CallingConv::ID YoLLVMCompiler::getCallingConv(EYoCallingConv conv)
+{
+	switch (conv) {
+	case YO_CALLING_DEFAULT:
+	case YO_CALLING_C:
+		return CallingConv::C;
+
+	case YO_CALLING_STDCALL:
+		return CallingConv::X86_StdCall;
+	}
+	YO_ASSERT(false);
+	return CallingConv::C;
+}
+
 llvm::Function * YoLLVMCompiler::compileDeclFunc(ModuleParams * module, YoProgCompiler::Function * progFunc)
 {
 	switch (progFunc->parserNode->data.func.op) {
 	case T_FUNC:
+		break;
+	case T_EXTERN_FUNC:
 		break;
 	case T_GET:
 		break;
@@ -894,7 +926,7 @@ llvm::Function * YoLLVMCompiler::compileDeclFunc(ModuleParams * module, YoProgCo
 	case T_LAMBDA:
 		break;
 	default:
-		setError(ERROR_UNREACHABLE, "Error func: %d\n", (int)progFunc->parserNode->data.func.op);
+		setError(ERROR_UNREACHABLE, "Error func op: %d\n", (int)progFunc->parserNode->data.func.op);
 		return NULL;
 	}
 	FunctionType * ft = getFuncNativeType(progFunc->funcNativeType);
@@ -902,6 +934,7 @@ llvm::Function * YoLLVMCompiler::compileDeclFunc(ModuleParams * module, YoProgCo
 
 	Function * func = Function::Create(ft, Function::ExternalLinkage, progFunc->name, module->llvmModule);
 	YO_ASSERT(func);
+	func->setCallingConv(getCallingConv(progFunc->funcNativeType->conv));
 	progFunc->ext.index = funcs.size();
 	funcs.push_back(func);
 	progFuncs.push_back(progFunc);
@@ -944,6 +977,10 @@ bool YoLLVMCompiler::compileScopeBody(FuncParams * func, YoProgCompiler::Scope *
 
 bool YoLLVMCompiler::compileFuncBody(ModuleParams * module, YoProgCompiler::Function * progFunc, llvm::Function * func)
 {
+	if (progFunc->externFunc) {
+		module->llvmExecutionEngine->addGlobalMapping(func, progFunc->externFunc);
+		return true;
+	}
 	// Create a new basic block to start insertion into.
 	BasicBlock * bb = BasicBlock::Create(*context, "entry", func);
 	

@@ -27,6 +27,8 @@ func testPowI(a, b int) int {
 }
 */
 
+extern func printf(fmt *byte, ...)
+
 func main() double {
 	/*
 	let b = true
@@ -60,8 +62,8 @@ func main() double {
 	*/
 
 	type Test class {
-		c TestBytes
 		a, b int
+		c TestBytes
 	}
 	
 	/* impl Test {
@@ -88,7 +90,11 @@ func main() double {
 	// t = Test{a=400, b=700}
 	// let b_false = func()bool{ return false; }
 	// let b_true = func()bool{ return true; }
+	let str = "Hello\x20World: %d\n"
+	printf(str, 123)
+	
 	let s &Test = *(null as *Test)
+	/*
 	let _bool bool = 1.2 != 0
 	let b_false = {||false}
 	let b_true = {||true}
@@ -96,10 +102,12 @@ func main() double {
 	if b_res {
 		return b_res // testBytes(b_res, t.c)
 	}
-	
-	let mut t = Test{TestBytes{1, 2, 3}, 300, 600}
-	let r &TestBytes = *&*&t.c
+	*/
+	let mut t = Test{300, 600, TestBytes{1, 2, 3}}
+	let test &Test = t
+	let r &TestBytes = *&*&test.c
 	if true {
+		printf("TestBytes.b: %d\n", r.b as int)
 		return r.b
 	}
 	
@@ -107,8 +115,7 @@ func main() double {
 	if true {
 		return p.b
 	}
-
-	return 123
+	return r.b
 	/*
 	type a [10]byte
 	let mut i = sizeof a[2]
