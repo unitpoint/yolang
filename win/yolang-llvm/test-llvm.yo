@@ -30,7 +30,20 @@ func testPowI(a, b int) int {
 extern func snprintf(buf *mut byte, size uint, fmt *byte, ...) // [cdecl]
 extern func printf(fmt *byte, ...)
 
+func getVal() int {
+	return 10
+}
+
 func main() double {
+	let i = getVal(), mut j = i + 10
+	++j
+	printf("i: %d\n", j)
+	
+	/* for let mut i = 0; i < 5; ++i {
+		printf("i: %d\n", i)
+		// i = i + 1
+	} */
+	
 	let _i = 0b01010_u16, _j = 0b01101_i16
 	let _r = _i | _j
 	printf("0x%04X | 0x%04X => 0x%04X\n", _i, _j, _r)

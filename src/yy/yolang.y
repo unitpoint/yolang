@@ -68,6 +68,7 @@ void yoParseEmpty(YYSTYPE*, void*, YYLTYPE * loc);
 void yoParserCall(YYSTYPE * r, YYSTYPE * name, YYSTYPE * args, void * parm, YYLTYPE * loc);
 void yoParserStmtReturn(YYSTYPE * r, YYSTYPE * expr, void * parm, YYLTYPE * loc);
 void yoParserEnableBrace(void * parm, YYLTYPE * loc);
+void yoParserStmtFor(YYSTYPE * r, YYSTYPE * init, YYSTYPE * condition, YYSTYPE * next, YYSTYPE * body, void * parm, YYLTYPE * loc);
 void yoParserStmtIf(YYSTYPE * r, YYSTYPE * ifExpr, YYSTYPE * thenStmt, YYSTYPE * elseIfList, YYSTYPE * elseStmt, void * parm, YYLTYPE * loc);
 void yoParserElseIfList(YYSTYPE * r, YYSTYPE * a, YYSTYPE * b, void * parm, YYLTYPE * loc);
 void yoParserElseIf(YYSTYPE * r, YYSTYPE * expr, YYSTYPE * stmt, void * parm, YYLTYPE * loc);
@@ -333,8 +334,10 @@ stmt_no_emptyline:
 	|	T_RETURN expr catch end_stmt	{ yoParserStmtReturn(&$$, &$2, parm, &yyloc); yoParserStmtCatch(&$$, &$$, &$3, parm, &yyloc); }
 	|	T_RETURN end_stmt				{ yoParserStmtReturn(&$$, NULL, parm, &yyloc); }
 	|	if_stmt
-	|	assign catch end_stmt	{ yoParserStmtCatch(&$$, &$1, &$2, parm, &yyloc); }
-	|	call catch end_stmt		{ yoParserStmtCatch(&$$, &$1, &$2, parm, &yyloc); }
+	|	for_stmt
+/*	|	assign catch end_stmt	{ yoParserStmtCatch(&$$, &$1, &$2, parm, &yyloc); } */
+/*	|	call catch end_stmt		{ yoParserStmtCatch(&$$, &$1, &$2, parm, &yyloc); } */
+	|	expr catch end_stmt		{ yoParserStmtCatch(&$$, &$1, &$2, parm, &yyloc); }
 	|	error stmt_error_end	{ yoParserError(&$$, yymsgbuf, parm, &yyloc); yyclearin; YYABORT; }
 
 stmt:
@@ -358,6 +361,35 @@ loop_stmt:
 		empty
 */
 
+for_stmt:
+		T_FOR { yoParserEnableBrace(parm, &yyloc); } for_init ';' expr ';' for_next brace_stmt	{
+				yoParserStmtFor(&$$, &$3, &$5, &$7, &$8, parm, &yyloc); 
+			}
+		
+for_next:
+		for_next_list
+	|	empty
+		
+for_next_list:
+		expr
+	|	for_next_list ',' expr	{ yoParserList(&$$, &$1, &$3, parm, &yyloc); }
+		
+for_init:
+		decl_var
+	|	var_assign_list
+	|	empty
+	
+var_assign_list:
+		var_assign_elem
+	|	var_assign_list ',' var_assign_elem		{ yoParserList(&$$, &$1, &$3, parm, &yyloc); }
+	
+var_assign_elem:
+		empty T_NAME type_or_empty T_ASSIGN expr {
+				yoParserDeclVar(&$1, $1.op == T_MUTABLE, &$2, &$3, parm, &yyloc); 
+				yoParserAssign(&$2, &$2, &$5, T_INIT_ASSIGN, parm, &yyloc); 
+				yoParserList(&$$, &$1, &$2, parm, &yyloc);
+			}
+		
 if_header:
 		expr
 	
@@ -696,6 +728,8 @@ expr_base:
 	|	expr_decl_func
 	|	expr T_AS type		{ yoParserCast(&$$, &$1, &$3, parm, &yyloc); }
 	|	expr T_DOT '(' type ')'	{ yoParserCast(&$$, &$1, &$4, parm, &yyloc); }
+	|	T_INC	expr %prec T_UNARY	{ yoParserUnaryOp(&$$, &$2, T_INC, parm, &yyloc); }
+	|	T_DEC	expr %prec T_UNARY	{ yoParserUnaryOp(&$$, &$2, T_DEC, parm, &yyloc); }
 	|	T_PLUS	expr %prec T_UNARY	{ yoParserUnaryOp(&$$, &$2, T_PLUS, parm, &yyloc); }
 	|	T_MINUS expr %prec T_UNARY	{ yoParserUnaryOp(&$$, &$2, T_MINUS, parm, &yyloc); }
 	|	T_NOT 	expr %prec T_UNARY	{ yoParserUnaryOp(&$$, &$2, T_NOT, parm, &yyloc); }

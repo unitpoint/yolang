@@ -138,6 +138,8 @@ bool YoLLVMCompiler::run(EBuildType buildType)
 	if (buildType == BUILD_RELEASE) {
 		// Provide basic AliasAnalysis support for GVN.
 		FPM.add(createBasicAliasAnalysisPass());
+		// Promote allocas to registers.
+		FPM.add(createPromoteMemoryToRegisterPass());
 		// Do simple "peephole" optimizations and bit-twiddling optzns.
 		FPM.add(createInstructionCombiningPass());
 		// Reassociate expressions.
@@ -736,6 +738,14 @@ llvm::Value * YoLLVMCompiler::compileOp(FuncParams * func, YoProgCompiler::Scope
 
 	case YoProgCompiler::OP_IF:
 		return compileIf(func, progScope, progOp);
+
+	case YoProgCompiler::OP_SCOPE:
+		YO_ASSERT(progOp->ops.size() == 0);
+		if (compileScopeBody(func, progOp->scope)) {
+			return Constant::getNullValue(Type::getIntNTy(*context, 1));
+		}
+		YO_ASSERT(isError());
+		return NULL;
 
 	default:
 		setError(ERROR_UNREACHABLE, "Error prog opcode: %d\n", (int)progOp->eop);

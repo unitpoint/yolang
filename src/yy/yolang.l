@@ -113,6 +113,9 @@ CLOSE_BRACKET	= (")"|"}");
 <ST_YOLANG,ST_INJECT>".." { return T_CONCAT; }
 <ST_YOLANG,ST_INJECT>"<-" { return T_CHAN_ACCESS; }
 
+<ST_YOLANG,ST_INJECT>"++" { return T_INC; }
+<ST_YOLANG,ST_INJECT>"--" { return T_DEC; }
+
 <ST_YOLANG,ST_INJECT>"=" { return T_ASSIGN; }
 <ST_YOLANG,ST_INJECT>":=" { return T_DECL_ASSIGN; }
 <ST_YOLANG,ST_INJECT>"+=" { return T_PLUS_ASSIGN; }

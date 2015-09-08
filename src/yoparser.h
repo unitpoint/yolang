@@ -70,6 +70,7 @@ enum EYoParserNodeType {
 	YO_NODE_CATCH_ELEM,
 	YO_NODE_STMT_CATCH,
 	YO_NODE_STMT_RETURN,
+	YO_NODE_STMT_FOR,
 	YO_NODE_STMT_IF,
 	YO_NODE_ELSEIF,
 	// YO_NODE_ELSEIF_LIST,
@@ -371,9 +372,15 @@ struct YoParserNode
 		} stmtCatch;
 
 		struct {
+			YoParserNode * init;
+			YoParserNode * condition;
+			YoParserNode * next;
+			YoParserNode * body;
+		} stmtFor;
+
+		struct {
 			YoParserNode * ifExpr;
 			YoParserNode * thenStmt;
-			// YoParserNode * elseIfList;
 			YoParserNode * elseStmt;
 		} stmtIf;
 

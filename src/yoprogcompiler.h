@@ -313,7 +313,8 @@ public:
 	enum EOperation
 	{
 		OP_NOP,
-		// OP_SCOPE,
+		OP_SCOPE,
+		OP_FOR,
 		OP_IF,
 
 		OP_CAST_TRUNC,
@@ -403,7 +404,7 @@ public:
 			} constFloat;
 
 			Function * func;
-			// Scope * scope;
+			Scope * scope;
 
 			struct {
 				StructType * parent;
@@ -439,6 +440,12 @@ public:
 				Scope * thenScope;
 				Scope * elseScope;
 			} stmtIf;
+
+			struct {
+				Operation * conditionOp;
+				Scope * bodyScope;
+				Scope * nextScope;
+			} stmtFor;
 
 			int strIndex;
 		};
@@ -587,8 +594,10 @@ protected:
 	Type * compileDeclType(Scope*, YoParserNode*);
 	// bool exprToStmt(Scope*, Expression*);
 	bool compileStmtBinOp(Scope*, YoParserNode*);
+	bool compileStmtUnaryOp(Scope*, YoParserNode*);
 	bool compileStmtAssign(Scope*, YoParserNode*);
 	bool compileStmtIf(Scope*, YoParserNode*);
+	bool compileStmtFor(Scope*, YoParserNode*);
 	bool compileStmtReturn(Scope*, YoParserNode*);
 	bool compileStmtCall(Scope*, YoParserNode*);
 	Operation * compileSubFunc(Scope*, YoParserNode*);
@@ -600,6 +609,7 @@ protected:
 	Operation * compileNewObjProps(Scope*, YoParserNode*);
 	Operation * compileBinOp(Scope*, YoParserNode*);
 	Operation * compileUnaryOp(Scope*, YoParserNode*);
+	Operation * compilePreIncDecOp(Scope*, YoParserNode*);
 	Operation * compileIndexOp(Scope*, YoParserNode*);
 	Operation * compilePowOp(Scope*, YoParserNode*);
 	Operation * compileCompareOp(Scope*, YoParserNode*);
@@ -621,6 +631,7 @@ protected:
 	Operation * convertArgToType(Scope*, Operation*, Type*, bool isExtern, YoParserNode*);
 	Operation * getValue(Scope*, Operation*, YoParserNode*);
 	Operation * getAddr(Scope*, Operation*, YoParserNode*);
+	Operation * getIndirect(Scope*, Operation*, YoParserNode*);
 
 	Operation * optimizeOpPass1(Scope*, Operation*);
 	bool optimizeScopePass1(Scope*);

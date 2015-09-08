@@ -852,6 +852,18 @@ static void yoParserDumpNode(YoParserNode * node, int depth, EYoParserNodeScopeT
 		yoParserDumpNode(node->data.import.path, depth, YO_NODE_SCOPE_OP);
 		break;
 
+	case YO_NODE_STMT_FOR:
+		printf("FOR\n");
+		yoParserDumpNode(node->data.stmtFor.init, depth + 1, YO_NODE_SCOPE_STATEMENT);
+		printDepth(depth); printf("CONDITION ");
+		yoParserDumpNode(node->data.stmtFor.condition, depth, YO_NODE_SCOPE_OP);
+		printf("\n");
+		yoParserDumpNode(node->data.stmtFor.next, depth + 1, YO_NODE_SCOPE_STATEMENT);
+		printDepth(depth); printf("BODY\n");
+		yoParserDumpNode(node->data.stmtFor.body, depth + 1, YO_NODE_SCOPE_STATEMENT);
+		printDepth(depth); printf("ENDFOR");
+		break;
+
 	case YO_NODE_STMT_IF:
 		printf("IF ");
 		yoParserDumpNode(node->data.stmtIf.ifExpr, depth, YO_NODE_SCOPE_OP);
@@ -1742,6 +1754,17 @@ void yoParserIf(YYSTYPE * r, YYSTYPE * ifExpr, YYSTYPE * thenStmt, YYSTYPE * els
 	r->node = node;
 }
 */
+
+void yoParserStmtFor(YYSTYPE * r, YYSTYPE * init, YYSTYPE * condition, YYSTYPE * next, YYSTYPE * body, void * parm, YYLTYPE * loc)
+{
+	YoParser * parser = dynamic_cast<YoParser*>((YoParser*)parm);
+	YoParserNode * node = parser->newNode(YO_NODE_STMT_FOR, loc);
+	node->data.stmtFor.init = init->node;
+	node->data.stmtFor.condition = condition->node;
+	node->data.stmtFor.next = next->node;
+	node->data.stmtFor.body = body->node;
+	r->node = node;
+}
 
 void yoParserStmtIf(YYSTYPE * r, YYSTYPE * ifExpr, YYSTYPE * thenStmt, YYSTYPE * elseIfList, YYSTYPE * elseStmt, void * parm, YYLTYPE * loc)
 {
