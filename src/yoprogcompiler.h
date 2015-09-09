@@ -535,9 +535,14 @@ protected:
 	Operation * newStackValuePtrOp(StackValue * value, YoParserNode*);
 	Operation * newStructElementPtrOp(Operation * ptrOp, int index, YoParserNode*);
 	Operation * newFuncDataPtrOp(Scope*, Function * func, YoParserNode*);
+	
 	Operation * newConstIntOp(Scope*, YO_U64 val, int bits, bool isSigned, YoParserNode*);
 	Operation * newConstIntOp(Scope*, YO_U64 val, Type * type, YoParserNode*);
 	Operation * newConstIntOp(Scope*, YO_U64 val, YoParserNode*);
+	
+	Operation * newConstFloatOp(Scope*, double val, int bits, YoParserNode*);
+	Operation * newConstFloatOp(Scope*, double val, Type * type, YoParserNode*);
+	Operation * newConstFloatOp(Scope*, double val, YoParserNode*);
 
 	enum ESpecAssignRet
 	{

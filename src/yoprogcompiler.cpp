@@ -2580,12 +2580,31 @@ YoProgCompiler::Operation * YoProgCompiler::newConstIntOp(Scope * scope, YO_U64 
 
 YoProgCompiler::Operation * YoProgCompiler::newConstIntOp(Scope * scope, YO_U64 val, YoParserNode * node)
 {
-	return newConstIntOp(scope, val, 64, false, node);
+	return newConstIntOp(scope, val, sizeof(val) * 8, false, node);
 }
 
 YoProgCompiler::Operation * YoProgCompiler::newConstIntOp(Scope * scope, YO_U64 val, Type * type, YoParserNode * node)
 {
 	Operation * op = newConstIntOp(scope, val, node);
+	return convertOpToType(scope, op, type, CONVERT_AUTO, node);
+}
+
+YoProgCompiler::Operation * YoProgCompiler::newConstFloatOp(Scope * scope, double val, int bits, YoParserNode * node)
+{
+	Operation * op = newOperation(OP_CONST_FLOAT, node);
+	op->constFloat.fval = val;
+	op->type = getFloatType(bits);
+	return op;
+}
+
+YoProgCompiler::Operation * YoProgCompiler::newConstFloatOp(Scope * scope, double val, YoParserNode * node)
+{
+	return newConstFloatOp(scope, val, sizeof(val) * 8, node);
+}
+
+YoProgCompiler::Operation * YoProgCompiler::newConstFloatOp(Scope * scope, double val, Type * type, YoParserNode * node)
+{
+	Operation * op = newConstFloatOp(scope, val, node);
 	return convertOpToType(scope, op, type, CONVERT_AUTO, node);
 }
 
@@ -3405,13 +3424,67 @@ YoProgCompiler::Operation * YoProgCompiler::compileUnaryOp(Scope * scope, YoPars
 {
 	YO_ASSERT(node && node->type == YO_NODE_UNARY_OP);
 	YO_ASSERT(node->data.unaryOp.node);
-	Operation * op, * valueOp;
+	Type * valueType;
+	Operation * op, * valueOp, * binOp;
+	int bits; bool isSigned;
 	switch (node->data.unaryOp.op) {
 	case T_INC:
 	case T_DEC:
 		op = compileOp(scope, node->data.unaryOp.node);
 		valueOp = newConstIntOp(scope, 1, node);
 		return newSpecAssignOp(scope, SPEC_PRE, op, valueOp, node->data.unaryOp.op == T_INC ? OP_BIN_ADD : OP_BIN_SUB, node);
+
+	case T_NOT:
+		op = compileOp(scope, node->data.unaryOp.node);
+		op = convertOpToType(scope, op, getType(TYPE_BOOL), CONVERT_AUTO, node);
+		if (!op) {
+			YO_ASSERT(isError());
+			return NULL;
+		}
+		binOp = newOperation(OP_BIT_XOR, node);
+		valueOp = convertOpToType(scope, newConstIntOp(scope, 1, node), op->type, CONVERT_BY_HAND, node);
+		YO_ASSERT(valueOp);
+		binOp->ops.push_back(valueOp);
+		binOp->ops.push_back(op);
+		binOp->type = op->type;
+		return binOp;
+
+	case T_PLUS:
+	case T_MINUS:
+	case T_TILDE:
+		op = compileOp(scope, node->data.unaryOp.node);
+		valueType = getValueType(op);
+		if (valueType->isNumber()) {
+			switch (node->data.unaryOp.op) {
+			case T_PLUS:
+				// nothing to do with number
+				return getValue(scope, op, node);
+
+			case T_MINUS:
+				binOp = newOperation(OP_BIN_SUB, node);
+				valueOp = convertOpToType(scope, newConstFloatOp(scope, 0, node), valueType, CONVERT_BY_HAND, node);
+				YO_ASSERT(valueOp);
+				binOp->ops.push_back(valueOp);
+				binOp->ops.push_back(getValue(scope, op, node));
+				binOp->type = valueType;
+				return binOp;
+
+			case T_TILDE:
+				if (getIntBits(valueType, bits, isSigned)) {
+					binOp = newOperation(OP_BIT_XOR, node);
+					valueOp = convertOpToType(scope, newConstIntOp(scope, ~0, node), valueType, CONVERT_BY_HAND, node);
+					YO_ASSERT(valueOp);
+					binOp->ops.push_back(valueOp);
+					binOp->ops.push_back(getValue(scope, op, node));
+					binOp->type = valueType;
+					return binOp;
+				}
+				setError(ERROR_UNREACHABLE, node, "Integer required");
+				return NULL;
+			}
+		}
+		setError(ERROR_UNREACHABLE, node, "Number required");
+		return NULL;
 
 	case T_ADDR:
 		return getAddr(scope, compileOp(scope, node->data.unaryOp.node), node);

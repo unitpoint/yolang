@@ -102,6 +102,8 @@ CLOSE_BRACKET	= (")"|"}");
 /* compute yyleng before each rule */
 <!*> := yoLexTrackRule(parserElem, parm, parserLoc); // yyleng = YYCURSOR - yytext;
 
+<ST_YOLANG,ST_INJECT>"!" { return T_NOT; }
+<ST_YOLANG,ST_INJECT>"~" { return T_TILDE; }
 <ST_YOLANG,ST_INJECT>"@" { return T_AT; }
 <ST_YOLANG,ST_INJECT>"." { return T_DOT; }
 <ST_YOLANG,ST_INJECT>"+" { return T_PLUS; }

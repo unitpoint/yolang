@@ -84,7 +84,8 @@ void main()
 		}
 		progCompiler.dump();
 
-		YoLLVMCompiler llvmCompiler(&progCompiler, "Yolang jit compiler", YoLLVMCompiler::BUILD_DEBUG);
+		YoLLVMCompiler::EBuildType buildType = YoLLVMCompiler::BUILD_RELEASE;
+		YoLLVMCompiler llvmCompiler(&progCompiler, "Yolang jit compiler", buildType);
 		if (llvmCompiler.run()) {
 			llvmCompiler.llvmModule->dump();
 			llvmCompiler.llvmEE->finalizeObject();
