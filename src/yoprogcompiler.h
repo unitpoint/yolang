@@ -637,6 +637,7 @@ protected:
 	Operation * compileDotOp(Scope*, Operation * left, YoParserNode * right, YoParserNode*);
 	Operation * compileOp(Scope*, YoParserNode*);
 	Operation * compileQuotedString(Scope*, YoParserNode*);
+	Operation * compileSingleQuotedString(Scope*, YoParserNode*);
 	Operation * compileValue(Scope*, YoParserNode*);
 
 	enum EConvertType

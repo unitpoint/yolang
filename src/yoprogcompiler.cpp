@@ -2153,6 +2153,33 @@ YoProgCompiler::Operation * YoProgCompiler::compileQuotedString(Scope * scope, Y
 	return op;
 }
 
+YoProgCompiler::Operation * YoProgCompiler::compileSingleQuotedString(Scope * scope, YoParserNode * node)
+{
+	YO_ASSERT(node && node->type == YO_NODE_SINGLE_QUOTED_STRING);
+
+	const char * s = node->token.str + 1;
+	const char * end = s + (node->token.len - 2);
+	std::ostringstream buf;
+	for (; s < end;) {
+		if (*s == '\\') {
+			const char * hexEnd;
+			switch (s[1]) {
+			case '\'': buf << '\''; break;
+			case '\\': buf << '\\'; break;
+			default: buf << s[1]; break;
+			}
+			s += 2;
+		}
+		else{
+			buf << *s++;
+		}
+	}
+	Operation * op = newOperation(OP_CONST_STRING, node);
+	op->strIndex = addConstStr(buf.str());
+	op->type = getPtrType(getType(TYPE_UINT8));
+	return op;
+}
+
 YoProgCompiler::Operation * YoProgCompiler::compileOp(Scope * scope, YoParserNode * node)
 {
 	YO_ASSERT(node);
@@ -2199,6 +2226,9 @@ YoProgCompiler::Operation * YoProgCompiler::compileOp(Scope * scope, YoParserNod
 
 	case YO_NODE_QUOTED_STRING:
 		return compileQuotedString(scope, node);
+
+	case YO_NODE_SINGLE_QUOTED_STRING:
+		return compileSingleQuotedString(scope, node);
 
 	case YO_NODE_NAME:
 		name = getTokenStr(node);
