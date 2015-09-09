@@ -41,6 +41,8 @@ const char * yoTokenName(int token)
 	case T_AND: return "&";
 	case T_MOD: return "%";
 	case T_DIV: return "/";
+	case T_INC: return "++";
+	case T_DEC: return "--";
 	case T_INDIRECT:
 	case T_MUL: return "*";
 	case T_POW: return "**";
@@ -852,15 +854,32 @@ static void yoParserDumpNode(YoParserNode * node, int depth, EYoParserNodeScopeT
 		yoParserDumpNode(node->data.import.path, depth, YO_NODE_SCOPE_OP);
 		break;
 
+	case YO_NODE_STMT_BREAK:
+		printf("%s", node->data.stmtBreak.op == T_BREAK ? "BREAK" : "CONTINUE");
+		if (node->data.stmtBreak.label) {
+			printf(" LABEL ");
+			yoParserDumpNode(node->data.stmtBreak.label, depth, YO_NODE_SCOPE_OP);
+		}
+		break;
+
 	case YO_NODE_STMT_FOR:
 		printf("FOR\n");
-		yoParserDumpNode(node->data.stmtFor.init, depth + 1, YO_NODE_SCOPE_STATEMENT);
-		printDepth(depth); printf("CONDITION ");
-		yoParserDumpNode(node->data.stmtFor.condition, depth, YO_NODE_SCOPE_OP);
-		printf("\n");
-		yoParserDumpNode(node->data.stmtFor.next, depth + 1, YO_NODE_SCOPE_STATEMENT);
-		printDepth(depth); printf("BODY\n");
-		yoParserDumpNode(node->data.stmtFor.body, depth + 1, YO_NODE_SCOPE_STATEMENT);
+		if (node->data.stmtFor.init) {
+			printDepth(depth + 1); printf("INIT\n");
+			yoParserDumpNode(node->data.stmtFor.init, depth + 2, YO_NODE_SCOPE_STATEMENT);
+		}
+		if (node->data.stmtFor.condition) {
+			printDepth(depth + 1); printf("CONDITION\n");
+			yoParserDumpNode(node->data.stmtFor.condition, depth + 2, YO_NODE_SCOPE_STATEMENT);
+		}
+		if (node->data.stmtFor.step) {
+			printDepth(depth + 1); printf("STEP\n");
+			yoParserDumpNode(node->data.stmtFor.step, depth + 2, YO_NODE_SCOPE_STATEMENT);
+		}
+		if (node->data.stmtFor.body) {
+			printDepth(depth + 1); printf("BODY\n");
+			yoParserDumpNode(node->data.stmtFor.body, depth + 2, YO_NODE_SCOPE_STATEMENT);
+		}
 		printDepth(depth); printf("ENDFOR");
 		break;
 
@@ -979,6 +998,13 @@ static void yoParserDumpNode(YoParserNode * node, int depth, EYoParserNodeScopeT
 		printf("(");
 		printf("%s ", yoTokenName(node->data.unaryOp.op));
 		yoParserDumpNode(node->data.unaryOp.node, depth, YO_NODE_SCOPE_OP);
+		printf(")");
+		break;
+
+	case YO_NODE_POST_UNARY_OP:
+		printf("(");
+		yoParserDumpNode(node->data.postUnaryOp.node, depth, YO_NODE_SCOPE_OP);
+		printf(" %s", yoTokenName(node->data.postUnaryOp.op));
 		printf(")");
 		break;
 
@@ -1592,6 +1618,16 @@ void yoParserUnaryOp(YYSTYPE * r, YYSTYPE * a, int op, void * parm, YYLTYPE * lo
 	r->node = node;
 }
 
+void yoParserPostUnaryOp(YYSTYPE * r, YYSTYPE * a, int op, void * parm, YYLTYPE * loc)
+{
+	YoParser * parser = dynamic_cast<YoParser*>((YoParser*)parm);
+	YO_ASSERT(a && a->node);
+	YoParserNode * node = parser->newNode(YO_NODE_POST_UNARY_OP, loc);
+	node->data.postUnaryOp.op = op;
+	node->data.postUnaryOp.node = a->node;
+	r->node = node;
+}
+
 void yoParserDotName(YYSTYPE * r, YYSTYPE * a, YYSTYPE * b, void * parm, YYLTYPE * loc)
 {
 	YoParser * parser = dynamic_cast<YoParser*>((YoParser*)parm);
@@ -1755,14 +1791,24 @@ void yoParserIf(YYSTYPE * r, YYSTYPE * ifExpr, YYSTYPE * thenStmt, YYSTYPE * els
 }
 */
 
-void yoParserStmtFor(YYSTYPE * r, YYSTYPE * init, YYSTYPE * condition, YYSTYPE * next, YYSTYPE * body, void * parm, YYLTYPE * loc)
+void yoParserStmtFor(YYSTYPE * r, YYSTYPE * init, YYSTYPE * condition, YYSTYPE * step, YYSTYPE * body, void * parm, YYLTYPE * loc)
 {
 	YoParser * parser = dynamic_cast<YoParser*>((YoParser*)parm);
 	YoParserNode * node = parser->newNode(YO_NODE_STMT_FOR, loc);
 	node->data.stmtFor.init = init->node;
 	node->data.stmtFor.condition = condition->node;
-	node->data.stmtFor.next = next->node;
+	node->data.stmtFor.step = step->node;
 	node->data.stmtFor.body = body->node;
+	r->node = node;
+}
+
+void yoParserStmtBreak(YYSTYPE * r, YYSTYPE * label, int op, void * parm, YYLTYPE * loc)
+{
+	YO_ASSERT(op == T_BREAK || op == T_CONTINUE);
+	YoParser * parser = dynamic_cast<YoParser*>((YoParser*)parm);
+	YoParserNode * node = parser->newNode(YO_NODE_STMT_BREAK, loc);
+	node->data.stmtBreak.op = op;
+	node->data.stmtBreak.label = label ? label->node : NULL;
 	r->node = node;
 }
 
@@ -1796,7 +1842,11 @@ void yoParserStmtIf(YYSTYPE * r, YYSTYPE * ifExpr, YYSTYPE * thenStmt, YYSTYPE *
 	YoParserNode * node = parser->newNode(YO_NODE_STMT_IF, loc);
 	node->data.stmtIf.ifExpr = ifExpr->node;
 	node->data.stmtIf.thenStmt = thenStmt->node;
-	node->data.stmtIf.elseStmt = elseStmt->node;
+	if (elseStmt && elseStmt->node) {
+		YO_ASSERT(elseStmt->node->type == YO_NODE_ELSE);
+		// node->data.stmtIf.elseStmt = elseStmt->node;
+		node->data.stmtIf.elseStmt = elseStmt->node->data.elseElem.node;
+	}
 	// node->token = ifExpr->node->token;
 	r->node = node;
 }

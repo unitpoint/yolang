@@ -316,6 +316,8 @@ public:
 		OP_SCOPE,
 		OP_FOR,
 		OP_IF,
+		OP_BREAK,
+		OP_CONTINUE,
 
 		OP_CAST_TRUNC,
 		OP_CAST_ZERO_EXT,
@@ -444,7 +446,7 @@ public:
 			struct {
 				Operation * conditionOp;
 				Scope * bodyScope;
-				Scope * nextScope;
+				Scope * stepScope;
 			} stmtFor;
 
 			int strIndex;
@@ -487,10 +489,14 @@ public:
 	bool getIntBits(Type * type, int& bits, bool& isSigned);
 	bool getFloatBits(Type * type, int& bits);
 
+	bool isMutable(Type*);
+	Type * addMut(Type * type, bool isMutable);
+	Type * removeMut(Type * type, bool& isMutable);
 	Type * getSubType(Type * ptrType, YoParserNode* = NULL);
 
 	static std::string getTokenStr(YoParserNode*);
 	std::string getConstStr(int i);
+	int addConstStr(const std::string&);
 
 	Function * getFunction(Scope*);
 	Module * getModule(Scope*);
@@ -529,6 +535,16 @@ protected:
 	Operation * newStackValuePtrOp(StackValue * value, YoParserNode*);
 	Operation * newStructElementPtrOp(Operation * ptrOp, int index, YoParserNode*);
 	Operation * newFuncDataPtrOp(Scope*, Function * func, YoParserNode*);
+	Operation * newConstIntOp(Scope*, YO_U64 val, int bits, bool isSigned, YoParserNode*);
+	Operation * newConstIntOp(Scope*, YO_U64 val, Type * type, YoParserNode*);
+	Operation * newConstIntOp(Scope*, YO_U64 val, YoParserNode*);
+
+	enum ESpecAssignRet
+	{
+		SPEC_PRE,
+		SPEC_POST,
+	};
+	Operation * newSpecAssignOp(Scope*, ESpecAssignRet, Operation * dstPtr, Operation * value, EOperation bin, YoParserNode*);
 
 	int getConvertKey(EType from, EType to);
 	Type * getBinOpNumCast(Type * a, Type * b);
@@ -570,10 +586,6 @@ protected:
 	Type * getPtrOrRefSubType(Type * ptrType, YoParserNode* = NULL);
 	Type * getValueType(Operation * op);
 
-	bool isMutable(Type*);
-
-	Type * addMut(Type * type, bool isMutable);
-	Type * removeMut(Type * type, bool& isMutable);
 	Type * getRefFromPtrType(Type * type, YoParserNode* = NULL);
 	Type * getPtrFromRefType(Type * type, YoParserNode* = NULL);
 
@@ -595,9 +607,11 @@ protected:
 	// bool exprToStmt(Scope*, Expression*);
 	bool compileStmtBinOp(Scope*, YoParserNode*);
 	bool compileStmtUnaryOp(Scope*, YoParserNode*);
+	bool compileStmtPostUnaryOp(Scope*, YoParserNode*);
 	bool compileStmtAssign(Scope*, YoParserNode*);
 	bool compileStmtIf(Scope*, YoParserNode*);
 	bool compileStmtFor(Scope*, YoParserNode*);
+	bool compileStmtBreak(Scope*, YoParserNode*);
 	bool compileStmtReturn(Scope*, YoParserNode*);
 	bool compileStmtCall(Scope*, YoParserNode*);
 	Operation * compileSubFunc(Scope*, YoParserNode*);
@@ -609,7 +623,7 @@ protected:
 	Operation * compileNewObjProps(Scope*, YoParserNode*);
 	Operation * compileBinOp(Scope*, YoParserNode*);
 	Operation * compileUnaryOp(Scope*, YoParserNode*);
-	Operation * compilePreIncDecOp(Scope*, YoParserNode*);
+	Operation * compilePostUnaryOp(Scope*, YoParserNode*);
 	Operation * compileIndexOp(Scope*, YoParserNode*);
 	Operation * compilePowOp(Scope*, YoParserNode*);
 	Operation * compileCompareOp(Scope*, YoParserNode*);
@@ -629,6 +643,7 @@ protected:
 	Operation * convertPtrToType(Scope*, Operation*, Type*, YoParserNode*);
 	Operation * convertOpToType(Scope*, Operation*, Type*, EConvertType, YoParserNode*);
 	Operation * convertArgToType(Scope*, Operation*, Type*, bool isExtern, YoParserNode*);
+	Operation * loadValue(Scope*, Operation*, YoParserNode*);
 	Operation * getValue(Scope*, Operation*, YoParserNode*);
 	Operation * getAddr(Scope*, Operation*, YoParserNode*);
 	Operation * getIndirect(Scope*, Operation*, YoParserNode*);

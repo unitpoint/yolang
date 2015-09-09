@@ -35,15 +35,21 @@ func getVal() int {
 }
 
 func main() double {
-	let i = getVal(), mut j = i + 10
-	++j
-	printf("i: %d\n", j)
+	/*
+	let mut i = getVal(), mut j = i + 10
+	i = j++
+	printf("i: %d, j: %d\n", i, j)
+	*/
 	
-	/* for let mut i = 0; i < 5; ++i {
-		printf("i: %d\n", i)
+	for let mut i = 0; i < 10; i++ {
+		printf("i: %d\n", i) if i % 2 == 0
+		break if i == 7
 		// i = i + 1
-	} */
+	}
 	
+	return 123
+	
+	/*
 	let _i = 0b01010_u16, _j = 0b01101_i16
 	let _r = _i | _j
 	printf("0x%04X | 0x%04X => 0x%04X\n", _i, _j, _r)
@@ -51,6 +57,7 @@ func main() double {
 	let mut buf [100]byte
 	snprintf(buf, sizeof buf, "test: 0x%04X, %d, %f, %d", 0x1234, 9876, 123.456_f32, 123)
 	printf("buf: %s\n", buf)
+	*/
 	
 	/*
 	let b = true
@@ -83,26 +90,12 @@ func main() double {
 	jj = ff(400000, 30000)
 	*/
 
+	/*
 	type Test class {
 		a, b int
 		c TestBytes
 	}
-	
-	/* impl Test {
-		
-		func GetA() int {
-			return a
-		}
-		
-		func mut SetA(a int) {
-			@a = a
-		}
-		// func mut setA(a int){ @a = a; }
-		
-		static {
-			
-		}
-	} */
+	let s &Test = *(null as *Test)
 	
 	// let t = Test{b: 700}
 	// t.c.b = 10
@@ -114,8 +107,8 @@ func main() double {
 	// let b_true = func()bool{ return true; }
 	let str = "Hello\x20World: %d\n"
 	printf(str, 123)
+	*/
 	
-	let s &Test = *(null as *Test)
 	/*
 	let _bool bool = 1.2 != 0
 	let b_false = {||false}
@@ -125,6 +118,8 @@ func main() double {
 		return b_res // testBytes(b_res, t.c)
 	}
 	*/
+	
+	/*
 	let mut t = Test{300, 600, TestBytes{1, 2, 3}}
 	let mut test &Test = t
 	let mut r &TestBytes = *&*&test.c
@@ -139,6 +134,8 @@ func main() double {
 		return p.b
 	}
 	return r.b
+	*/
+	
 	/*
 	type a [10]byte
 	let mut i = sizeof a[2]

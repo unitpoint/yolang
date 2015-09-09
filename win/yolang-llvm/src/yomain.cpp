@@ -40,8 +40,8 @@ void main()
 	// yodebug = 1;
 #endif
 
-	// const char * filename = "fannkuch.yo";
-	const char * filename = "test-llvm.yo";
+	const char * filename = "fannkuch.yo";
+	// const char * filename = "test-llvm.yo";
 	// const char * filename = "test-01.yo";
 	FILE * f = fopen(filename, "rb");
 	if (!f) {
@@ -84,13 +84,23 @@ void main()
 		}
 		progCompiler.dump();
 
-		YoLLVMCompiler llvmCompiler(&progCompiler);
-		if (llvmCompiler.run(YoLLVMCompiler::BUILD_DEBUG)) {
-			double(*func)(void*) = (double(*)(void*))(intptr_t)llvmCompiler.mainFunc;
-			double r = func(NULL);
-			printf("\nResult: %lf\n", r);
+		YoLLVMCompiler llvmCompiler(&progCompiler, "Yolang jit compiler", YoLLVMCompiler::BUILD_DEBUG);
+		if (llvmCompiler.run()) {
+			llvmCompiler.llvmModule->dump();
+			llvmCompiler.llvmEE->finalizeObject();
+			llvm::Function * llvmFunc = llvmCompiler.llvmModule->getFunction("main");
+			if (llvmFunc) {
+				void * mainFunc = llvmCompiler.llvmEE->getPointerToFunction(llvmFunc);
+				double(*func)(void*) = (double(*)(void*))mainFunc;
+				double r = func(NULL);
+				printf("\nResult: %lf\n", r);
+			}
+			else{
+				printf("Main function is not found\n");
+			}
 		}
 		if (llvmCompiler.isError()) {
+			llvmCompiler.llvmModule->dump();
 			printf("\n======================\n%s\n", llvmCompiler.errorMsg.c_str());
 			break;
 		}

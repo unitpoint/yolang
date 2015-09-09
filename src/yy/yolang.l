@@ -190,7 +190,10 @@ CLOSE_BRACKET	= (")"|"}");
 <ST_YOLANG,ST_INJECT>"class" { return T_CLASS; }
 <ST_YOLANG,ST_INJECT>"contract" { return T_CONTRACT; }
 <ST_YOLANG,ST_INJECT>"for" { return T_FOR; }
+<ST_YOLANG,ST_INJECT>"while" { return T_WHILE; }
 <ST_YOLANG,ST_INJECT>"loop" { return T_LOOP; }
+<ST_YOLANG,ST_INJECT>"break" { return T_BREAK; }
+<ST_YOLANG,ST_INJECT>"continue" { return T_CONTINUE; }
 <ST_YOLANG,ST_INJECT>"in" { return T_IN; }
 <ST_YOLANG,ST_INJECT>"if" { return T_IF; }
 <ST_YOLANG,ST_INJECT>"else" { return T_ELSE; }

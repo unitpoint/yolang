@@ -24,22 +24,43 @@ using namespace llvm;
 
 static bool llvmInitialized = false;
 
-YoLLVMCompiler::YoLLVMCompiler(YoProgCompiler * p)
+YoLLVMCompiler::YoLLVMCompiler(YoProgCompiler * p, const std::string& p_llvmModuleName, EBuildType p_buildType) : llvmModuleName(p_llvmModuleName)
 {
 	progCompiler = p;
-	mainFunc = NULL;
+	buildType = p_buildType;
 	error = ERROR_NOTHING;
-	context = NULL;
-	// builder = NULL;
-	// module = NULL;
-	// executionEngine = NULL;
-	// funcPassManager = NULL;
+	llvmModule = NULL;
+	llvmEE = NULL;
+	llvmFPM = NULL;
+
+	if (!llvmInitialized) {
+		llvmInitialized = true;
+		InitializeNativeTarget();
+		InitializeNativeTargetAsmPrinter();
+		InitializeNativeTargetAsmParser();
+	}
+	llvmContext = &getGlobalContext();
 }
 
 YoLLVMCompiler::~YoLLVMCompiler()
 {
-	YO_ASSERT(!context);
+	reset();
+	// YO_ASSERT(!llvmContext);
 	progCompiler = NULL;
+}
+
+void YoLLVMCompiler::reset()
+{
+	delete llvmFPM; llvmFPM = NULL;
+	if (llvmEE) {
+		delete llvmEE; llvmEE = NULL;
+		// llvmEE is owner of llvmModule so just reset pointer
+		llvmModule = NULL;
+	}
+	else{
+		delete llvmModule; llvmModule = NULL;
+	}
+	resetError();
 }
 
 void YoLLVMCompiler::resetError()
@@ -87,126 +108,114 @@ bool YoLLVMCompiler::isError() const
 	externFuncs = p_externFuncs;
 } */
 
-bool YoLLVMCompiler::run(EBuildType buildType)
+void YoLLVMCompiler::initFPM()
 {
+	YO_ASSERT(!llvmFPM);
+	llvmFPM = new FunctionPassManager(llvmModule);
+
+	// Set up the optimizer pipeline.  Start with registering info about how the
+	// target lays out data structures.
+	llvmFPM->add(new DataLayoutPass());
+	llvmFPM->add(new TargetLibraryInfo(Triple(llvmModule->getTargetTriple())));
+	if (buildType == BUILD_RELEASE) {
+		// Provide basic AliasAnalysis support for GVN.
+		llvmFPM->add(createBasicAliasAnalysisPass());
+		// Promote allocas to registers.
+		llvmFPM->add(createPromoteMemoryToRegisterPass());
+		// Do simple "peephole" optimizations and bit-twiddling optzns.
+		llvmFPM->add(createInstructionCombiningPass());
+		// Reassociate expressions.
+		llvmFPM->add(createReassociatePass());
+		// Eliminate Common SubExpressions.
+		llvmFPM->add(createGVNPass());
+		// Simplify the control flow graph (deleting unreachable blocks, etc).
+		llvmFPM->add(createCFGSimplificationPass());
+	}
+	llvmFPM->doInitialization();
+}
+
+bool YoLLVMCompiler::run()
+{
+	reset();
 	if (progCompiler->isError()) {
 		setError(ERROR_IN_PROGCOMPILER, "Error in prog compiler");
 		return false;
 	}
 
-	if (!llvmInitialized) {
-		llvmInitialized = true;
-		InitializeNativeTarget();
-		InitializeNativeTargetAsmPrinter();
-		InitializeNativeTargetAsmParser();
-	}
-	
-	context = &getGlobalContext();
-	
-	ModuleParams module;
+	// ModuleParams module;
 	// module.progModule = progModule;
-	module.name = "YO jit module"; // progModule->name;
+	// module.name = "YO jit module"; // progModule->name;
 
-	std::unique_ptr<Module> owner = make_unique<Module>(module.name.c_str(), *context);
-	module.llvmModule = owner.get();
+	std::unique_ptr<Module> owner = make_unique<Module>(llvmModuleName.c_str(), *llvmContext);
+	llvmModule = owner.get();
 
 #ifdef _WIN32
 	std::string triple = llvm::sys::getProcessTriple();
-	module.llvmModule->setTargetTriple(triple + "-elf");
+	llvmModule->setTargetTriple(triple + "-elf");
 #endif
 
 	std::string errStr;
-	module.llvmExecutionEngine =
+	llvmEE =
 		EngineBuilder(std::move(owner))
 		.setErrorStr(&errStr)
 		.setMCJITMemoryManager(llvm::make_unique<SectionMemoryManager>())
 		.create();
-
-	if (!module.llvmExecutionEngine) {
+	if (!llvmEE) {
 		setError(ERROR_UNREACHABLE, "Could not create ExecutionEngine: %s", errStr.c_str());
 		return false;
 	}
-	// module.llvmExecutionEngine->DisableSymbolSearching();
+	llvmModule->setDataLayout(llvmEE->getDataLayout());
+	// llvmEE->DisableSymbolSearching();
 
-	FunctionPassManager FPM(module.llvmModule);
-
-	// Set up the optimizer pipeline.  Start with registering info about how the
-	// target lays out data structures.
-	module.llvmModule->setDataLayout(module.llvmExecutionEngine->getDataLayout());
-	FPM.add(new DataLayoutPass());
-	FPM.add(new TargetLibraryInfo(Triple(module.llvmModule->getTargetTriple())));
-	if (buildType == BUILD_RELEASE) {
-		// Provide basic AliasAnalysis support for GVN.
-		FPM.add(createBasicAliasAnalysisPass());
-		// Promote allocas to registers.
-		FPM.add(createPromoteMemoryToRegisterPass());
-		// Do simple "peephole" optimizations and bit-twiddling optzns.
-		FPM.add(createInstructionCombiningPass());
-		// Reassociate expressions.
-		FPM.add(createReassociatePass());
-		// Eliminate Common SubExpressions.
-		FPM.add(createGVNPass());
-		// Simplify the control flow graph (deleting unreachable blocks, etc).
-		FPM.add(createCFGSimplificationPass());
-	}
-	FPM.doInitialization();
-
-	// Set the global so the code gen can use this.
-	module.llvmFPM = &FPM;
+	initFPM();
 
 	// main
 	for (int i = (int)progCompiler->modules.size() - 1; i >= 0; i--) {
 		YoProgCompiler::Module * progModule = progCompiler->modules[i];
-		module.progModule = progModule;
-		if (!compileModule(&module)) {
+		if (!compileModule(progModule)) {
 			YO_ASSERT(isError());
-			module.llvmModule->dump();
-			context = NULL;
+			// llvmModule->dump();
+			llvmContext = NULL;
 			return false;
 		}
 	}
 	
 	SmallVector<char, 1000> buf;
 	raw_svector_ostream OS(buf);
-	if (verifyModule(*module.llvmModule, &OS)) {
-		// setError(ERROR_VERIFY_MODULE, "Error verify module %s", module.llvmModule->getName().str().c_str());
+	if (verifyModule(*llvmModule, &OS)) {
+		// setError(ERROR_VERIFY_MODULE, "Error verify module %s", llvmModule->getName().str().c_str());
 		setError(ERROR_VERIFY_MODULE, OS.str());
-		module.llvmModule->dump();
-		context = NULL;
+		// llvmModule->dump();
+		// llvmContext = NULL;
 		return false;
 	}
 
-	module.llvmModule->dump();
+	// llvmModule->dump();
+	// llvmEE->finalizeObject();
 
-	module.llvmExecutionEngine->finalizeObject();
-	Function * func = module.llvmModule->getFunction("main");
-	if (func) {
-		mainFunc = module.llvmExecutionEngine->getPointerToFunction(func);
-	}
-
-	context = NULL;
+	// llvmContext = NULL;
 	return true;
 }
 
 llvm::Type * YoLLVMCompiler::getType(YoProgCompiler::Type * progType)
 {
 	if (progType->ext.index >= 0) {
-		return types[progType->ext.index];
+		return llvmTypes[progType->ext.index];
 	}
 	Type * type;
 	switch (progType->etype) {
-	case YoProgCompiler::TYPE_VOID: type = Type::getVoidTy(*context); break;
-	case YoProgCompiler::TYPE_BOOL: type = Type::getInt1Ty(*context); break;
-	case YoProgCompiler::TYPE_INT8: type = Type::getInt8Ty(*context); break;
-	case YoProgCompiler::TYPE_INT16: type = Type::getInt16Ty(*context); break;
-	case YoProgCompiler::TYPE_INT32: type = Type::getInt32Ty(*context); break;
-	case YoProgCompiler::TYPE_INT64: type = Type::getInt64Ty(*context); break;
-	case YoProgCompiler::TYPE_UINT8: type = Type::getInt8Ty(*context); break;
-	case YoProgCompiler::TYPE_UINT16: type = Type::getInt16Ty(*context); break;
-	case YoProgCompiler::TYPE_UINT32: type = Type::getInt32Ty(*context); break;
-	case YoProgCompiler::TYPE_UINT64: type = Type::getInt64Ty(*context); break;
-	case YoProgCompiler::TYPE_FLOAT32: type = Type::getFloatTy(*context); break;
-	case YoProgCompiler::TYPE_FLOAT64: type = Type::getDoubleTy(*context); break;
+	case YoProgCompiler::TYPE_VOID: type = Type::getVoidTy(*llvmContext); break;
+	case YoProgCompiler::TYPE_BOOL: type = Type::getInt1Ty(*llvmContext); break;
+	case YoProgCompiler::TYPE_INT8: type = Type::getInt8Ty(*llvmContext); break;
+	case YoProgCompiler::TYPE_INT16: type = Type::getInt16Ty(*llvmContext); break;
+	case YoProgCompiler::TYPE_INT32: type = Type::getInt32Ty(*llvmContext); break;
+	case YoProgCompiler::TYPE_INT64: type = Type::getInt64Ty(*llvmContext); break;
+	case YoProgCompiler::TYPE_UINT8: type = Type::getInt8Ty(*llvmContext); break;
+	case YoProgCompiler::TYPE_UINT16: type = Type::getInt16Ty(*llvmContext); break;
+	case YoProgCompiler::TYPE_UINT32: type = Type::getInt32Ty(*llvmContext); break;
+	case YoProgCompiler::TYPE_UINT64: type = Type::getInt64Ty(*llvmContext); break;
+	case YoProgCompiler::TYPE_FLOAT32: type = Type::getFloatTy(*llvmContext); break;
+	case YoProgCompiler::TYPE_FLOAT64: type = Type::getDoubleTy(*llvmContext); break;
 	case YoProgCompiler::TYPE_FUNC_NATIVE: return getFuncNativeType(progType);
 	case YoProgCompiler::TYPE_FUNC_DATA: return getFuncDataType(progType);
 
@@ -227,8 +236,8 @@ llvm::Type * YoLLVMCompiler::getType(YoProgCompiler::Type * progType)
 		setError(ERROR_UNREACHABLE, "Error type: %d\n", (int)progType->etype);
 		return NULL;
 	}
-	progType->ext.index = types.size();
-	types.push_back(type);
+	progType->ext.index = llvmTypes.size();
+	llvmTypes.push_back(type);
 	return type;
 }
 
@@ -238,7 +247,7 @@ llvm::PointerType * YoLLVMCompiler::getPtrType(YoProgCompiler::Type * _progType)
 	YoProgCompiler::SubType * progType = dynamic_cast<YoProgCompiler::SubType*>(_progType);
 	YO_ASSERT(progType);
 	if (progType->ext.index >= 0) {
-		PointerType * ptrType = dyn_cast<PointerType>(types[progType->ext.index]);
+		PointerType * ptrType = dyn_cast<PointerType>(llvmTypes[progType->ext.index]);
 		YO_ASSERT(ptrType);
 		return ptrType;
 	}
@@ -248,13 +257,13 @@ llvm::PointerType * YoLLVMCompiler::getPtrType(YoProgCompiler::Type * _progType)
 		type = getType(progType->subType);
 	}
 	else {
-		type = Type::getInt8Ty(*context);
+		type = Type::getInt8Ty(*llvmContext);
 	}
 	YO_ASSERT(type);
 	PointerType * ptrType = PointerType::get(type, 0);
 	YO_ASSERT(ptrType);
-	progType->ext.index = types.size();
-	types.push_back(ptrType);
+	progType->ext.index = llvmTypes.size();
+	llvmTypes.push_back(ptrType);
 	return ptrType;
 }
 
@@ -264,7 +273,7 @@ llvm::FunctionType * YoLLVMCompiler::getFuncNativeType(YoProgCompiler::Type * _p
 	YoProgCompiler::FuncNativeType * progType = dynamic_cast<YoProgCompiler::FuncNativeType*>(_progType);
 	YO_ASSERT(progType);
 	if (progType->ext.index >= 0) {
-		FunctionType * funcType = dyn_cast<FunctionType>(types[progType->ext.index]);
+		FunctionType * funcType = dyn_cast<FunctionType>(llvmTypes[progType->ext.index]);
 		YO_ASSERT(funcType);
 		return funcType;
 	}
@@ -278,8 +287,8 @@ llvm::FunctionType * YoLLVMCompiler::getFuncNativeType(YoProgCompiler::Type * _p
 	Type * resType = getType(progType->resType);
 	FunctionType * funcType = FunctionType::get(resType, argTypes, progType->isVarArg);
 	YO_ASSERT(funcType);
-	progType->ext.index = types.size();
-	types.push_back(funcType);
+	progType->ext.index = llvmTypes.size();
+	llvmTypes.push_back(funcType);
 	progTypesMap[funcType] = progType;
 	return funcType;
 }
@@ -299,7 +308,7 @@ llvm::StructType * YoLLVMCompiler::getStructType(YoProgCompiler::Type * _progTyp
 	YoProgCompiler::StructType * progType = dynamic_cast<YoProgCompiler::StructType*>(_progType);
 	YO_ASSERT(progType);
 	if (progType->ext.index >= 0) {
-		StructType * structType = dyn_cast<StructType>(types[progType->ext.index]);
+		StructType * structType = dyn_cast<StructType>(llvmTypes[progType->ext.index]);
 		YO_ASSERT(structType);
 		return structType;
 	}
@@ -310,10 +319,10 @@ llvm::StructType * YoLLVMCompiler::getStructType(YoProgCompiler::Type * _progTyp
 		YO_ASSERT(type);
 		elements.push_back(type);
 	}
-	StructType * structType = StructType::get(*context, elements, progType->isPacked);
+	StructType * structType = StructType::get(*llvmContext, elements, progType->isPacked);
 	YO_ASSERT(structType);
-	progType->ext.index = types.size();
-	types.push_back(structType);
+	progType->ext.index = llvmTypes.size();
+	llvmTypes.push_back(structType);
 	return structType;
 }
 
@@ -323,7 +332,7 @@ llvm::ArrayType * YoLLVMCompiler::getArrayType(YoProgCompiler::Type * _progType)
 	YoProgCompiler::ArrayType * progType = dynamic_cast<YoProgCompiler::ArrayType*>(_progType);
 	YO_ASSERT(progType);
 	if (progType->ext.index >= 0) {
-		ArrayType * arrayType = dyn_cast<ArrayType>(types[progType->ext.index]);
+		ArrayType * arrayType = dyn_cast<ArrayType>(llvmTypes[progType->ext.index]);
 		YO_ASSERT(arrayType);
 		return arrayType;
 	}
@@ -331,8 +340,8 @@ llvm::ArrayType * YoLLVMCompiler::getArrayType(YoProgCompiler::Type * _progType)
 	YO_ASSERT(elementType);
 	ArrayType * arrayType = ArrayType::get(elementType, progType->size);
 	YO_ASSERT(arrayType);
-	progType->ext.index = types.size();
-	types.push_back(arrayType);
+	progType->ext.index = llvmTypes.size();
+	llvmTypes.push_back(arrayType);
 	return arrayType;
 }
 
@@ -407,20 +416,20 @@ llvm::CmpInst::Predicate YoLLVMCompiler::getCmpOp(YoProgCompiler::EOperation eop
 	return isFloat ? CmpInst::Predicate::FCMP_OEQ : CmpInst::Predicate::ICMP_EQ;
 }
 
-bool YoLLVMCompiler::compileModule(ModuleParams * module)
+bool YoLLVMCompiler::compileModule(YoProgCompiler::Module * progModule)
 {
 	// for (int i = 0; i < (int)progModule->funcs.size(); i++) {
-	int i, saveFuncsNumber = (int)funcs.size();
-	for (i = (int)module->progModule->funcs.size() - 1; i >= 0; i--) {
-		YoProgCompiler::Function * progFunc = module->progModule->funcs[i];
-		if (!compileDeclFunc(module, progFunc)) {
+	int i, saveFuncsNumber = (int)llvmFuncs.size();
+	for (i = (int)progModule->funcs.size() - 1; i >= 0; i--) {
+		YoProgCompiler::Function * progFunc = progModule->funcs[i];
+		if (!compileDeclFunc(progModule, progFunc)) {
 			return false;
 		}
 	}
-	for (i = saveFuncsNumber; i < (int)funcs.size(); i++) {
-		Function * func = funcs[i];
+	for (i = saveFuncsNumber; i < (int)llvmFuncs.size(); i++) {
+		Function * func = llvmFuncs[i];
 		YoProgCompiler::Function * progFunc = progFuncs[i];
-		if (!compileFuncBody(module, progFunc, func)) {
+		if (!compileFuncBody(progModule, progFunc, func)) {
 			return false;
 		}
 	}
@@ -493,7 +502,16 @@ llvm::Value * YoLLVMCompiler::compileOp(FuncParams * func, YoProgCompiler::Scope
 	case YoProgCompiler::OP_CMP_GT:
 		YO_ASSERT(progOp->ops.size() == 2);
 		YO_ASSERT(progOp->type && progOp->ops[0]->type && progOp->ops[1]->type);
-		YO_ASSERT(progOp->ops[0]->type->etype == progOp->ops[1]->type->etype);
+#ifdef YO_DEBUG
+		{
+			bool isMutable[2];
+			YoProgCompiler::Type * nakedTypes[2] = { progCompiler->removeMut(progOp->ops[0]->type, isMutable[0]),
+				progCompiler->removeMut(progOp->ops[1]->type, isMutable[1]) };
+			if (nakedTypes[0] != nakedTypes[1]) {
+				int i = 0;
+			}
+		}
+#endif
 		left = compileOp(func, progScope, progOp->ops[0]);
 		right = compileOp(func, progScope, progOp->ops[1]);
 		if (!left || !right) {
@@ -519,7 +537,16 @@ llvm::Value * YoLLVMCompiler::compileOp(FuncParams * func, YoProgCompiler::Scope
 	case YoProgCompiler::OP_BIT_XOR:
 		YO_ASSERT(progOp->ops.size() == 2);
 		YO_ASSERT(progOp->type && progOp->ops[0]->type && progOp->ops[1]->type);
-		YO_ASSERT(progOp->ops[0]->type->etype == progOp->ops[1]->type->etype);
+#ifdef YO_DEBUG
+		{
+			bool isMutable[2];
+			YoProgCompiler::Type * nakedTypes[2] = { progCompiler->removeMut(progOp->ops[0]->type, isMutable[0]), 
+				progCompiler->removeMut(progOp->ops[1]->type, isMutable[1]) };
+			if (nakedTypes[0] != nakedTypes[1]) {
+				int i = 0;
+			}
+		}
+#endif
 		left = compileOp(func, progScope, progOp->ops[0]);
 		right = compileOp(func, progScope, progOp->ops[1]);
 		if (!left || !right) {
@@ -544,20 +571,20 @@ llvm::Value * YoLLVMCompiler::compileOp(FuncParams * func, YoProgCompiler::Scope
 			id = Intrinsic::powi;
 		} */
 		/* if (left->getType()->isFloatingPointTy()) {
-			size = func->module->llvmExecutionEngine->getDataLayout()->getTypeStoreSize(Type::getDoubleTy(*context));
+			size = llvmEE->getDataLayout()->getTypeStoreSize(Type::getDoubleTy(*llvmContext));
 			if (!left->getType()->isDoubleTy()) {
 				Instruction::CastOps op = Instruction::FPExt;
-				if (size < func->module->llvmExecutionEngine->getDataLayout()->getTypeStoreSize(left->getType())) {
+				if (size < llvmEE->getDataLayout()->getTypeStoreSize(left->getType())) {
 					op = Instruction::FPTrunc;
 				}
-				left = func->builder->CreateCast(op, left, Type::getDoubleTy(*context));
+				left = func->builder->CreateCast(op, left, Type::getDoubleTy(*llvmContext));
 			}
 			if (!right->getType()->isDoubleTy()) {
 				Instruction::CastOps op = Instruction::FPExt;
-				if (size < func->module->llvmExecutionEngine->getDataLayout()->getTypeStoreSize(right->getType())) {
+				if (size < llvmEE->getDataLayout()->getTypeStoreSize(right->getType())) {
 					op = Instruction::FPTrunc;
 				}
-				right = func->builder->CreateCast(op, right, Type::getDoubleTy(*context));
+				right = func->builder->CreateCast(op, right, Type::getDoubleTy(*llvmContext));
 			}
 		} */
 		argTypes.push_back(left->getType());
@@ -565,7 +592,7 @@ llvm::Value * YoLLVMCompiler::compileOp(FuncParams * func, YoProgCompiler::Scope
 		// Type * argTypes[] = { left->getType(), right->getType() };
 		// Type * argTypes[] = { left->getType() };
 		Value * args[] = { left, right };
-		Function * callFunc = Intrinsic::getDeclaration(func->module->llvmModule, id, argTypes);
+		Function * callFunc = Intrinsic::getDeclaration(llvmModule, id, argTypes);
 		return func->builder->CreateCall(callFunc, args);
 	}
 	case YoProgCompiler::OP_RETURN:
@@ -621,7 +648,7 @@ llvm::Value * YoLLVMCompiler::compileOp(FuncParams * func, YoProgCompiler::Scope
 			YO_ASSERT(isError());
 			return NULL;
 		}
-		Value * zero = ConstantInt::get(Type::getInt32Ty(*context), 0);
+		Value * zero = ConstantInt::get(Type::getInt32Ty(*llvmContext), 0);
 		Value * args[] = { zero, value };
 		return func->builder->CreateInBoundsGEP(srcPtr, args);
 	}
@@ -635,7 +662,7 @@ llvm::Value * YoLLVMCompiler::compileOp(FuncParams * func, YoProgCompiler::Scope
 
 	case YoProgCompiler::OP_FUNC:
 		YO_ASSERT(progOp->ops.size() == 0);
-		return funcs[progOp->func->ext.index];
+		return llvmFuncs[progOp->func->ext.index];
 
 	case YoProgCompiler::OP_LOAD: {
 		YO_ASSERT(progOp->ops.size() == 1);
@@ -674,8 +701,9 @@ llvm::Value * YoLLVMCompiler::compileOp(FuncParams * func, YoProgCompiler::Scope
 				return NULL;
 			}
 			noValue = func->builder->CreateStore(value, dstPtr);
-			return progOp->type ? value : noValue;
+			return dstPtr; // progOp->type ? value : noValue;
 		}
+		YO_ASSERT(!progCompiler->isValueOp(progOp->ops[0]));
 		// store from ptr
 		srcPtr = compileOp(func, progScope, progOp->ops[0]);	// ptr src
 		if (!srcPtr || !dstPtr) {
@@ -684,23 +712,23 @@ llvm::Value * YoLLVMCompiler::compileOp(FuncParams * func, YoProgCompiler::Scope
 		}
 		if (srcPtr == dstPtr) {
 			// return progOp->type ? srcPtr : noValue;
-			return srcPtr;
+			return dstPtr; // srcPtr;
 		}
-		size = func->module->llvmExecutionEngine->getDataLayout()->getTypeStoreSize(dstPtr->getType()->getContainedType(0));
+		size = llvmEE->getDataLayout()->getTypeStoreSize(dstPtr->getType()->getContainedType(0));
 		if (size > sizeof(void*)*4) {
 			noValue = func->builder->CreateMemCpy(dstPtr, srcPtr, size, 1);
-			return progOp->type ? srcPtr : noValue;
+			return dstPtr; // progOp->type ? srcPtr : noValue;
 		}
 		value = func->builder->CreateLoad(srcPtr);
 		noValue = func->builder->CreateStore(value, dstPtr);
-		return progOp->type ? srcPtr : noValue;
+		return dstPtr; // progOp->type ? srcPtr : noValue;
 
 	case YoProgCompiler::OP_STACK_VALUE_MEMZERO:
 		if (progOp->stackValue->initStackValue) {
 			int i = 0;
 		}
 		dstPtr = (*func->stackValues)[progOp->stackValue->ext.index];
-		size = func->module->llvmExecutionEngine->getDataLayout()->getTypeStoreSize(dstPtr->getType()->getContainedType(0));
+		size = llvmEE->getDataLayout()->getTypeStoreSize(dstPtr->getType()->getContainedType(0));
 		return func->builder->CreateMemSet(dstPtr, func->builder->getInt8(0), size, 1);
 
 	case YoProgCompiler::OP_CAST_TRUNC:
@@ -729,9 +757,9 @@ llvm::Value * YoLLVMCompiler::compileOp(FuncParams * func, YoProgCompiler::Scope
 
 	case YoProgCompiler::OP_SIZEOF:
 		YO_ASSERT(progOp->ops.size() == 1);
-		size = func->module->llvmExecutionEngine->getDataLayout()->getTypeAllocSize(getType(progOp->ops[0]->type));
+		size = llvmEE->getDataLayout()->getTypeAllocSize(getType(progOp->ops[0]->type));
 		if (progCompiler->getIntBits(progOp->type, bits, isSigned)) {
-			return ConstantInt::get(Type::getIntNTy(*context, bits), size);
+			return ConstantInt::get(Type::getIntNTy(*llvmContext, bits), size);
 		}
 		setError(ERROR_UNREACHABLE, "Error sizeof type: %d\n", (int)progOp->type->etype);
 		return NULL;
@@ -739,10 +767,17 @@ llvm::Value * YoLLVMCompiler::compileOp(FuncParams * func, YoProgCompiler::Scope
 	case YoProgCompiler::OP_IF:
 		return compileIf(func, progScope, progOp);
 
+	case YoProgCompiler::OP_FOR:
+		return compileFor(func, progScope, progOp);
+
+	case YoProgCompiler::OP_BREAK:
+	case YoProgCompiler::OP_CONTINUE:
+		return compileBreakContinue(func, progScope, progOp);
+
 	case YoProgCompiler::OP_SCOPE:
 		YO_ASSERT(progOp->ops.size() == 0);
 		if (compileScopeBody(func, progOp->scope)) {
-			return Constant::getNullValue(Type::getIntNTy(*context, 1));
+			return Constant::getNullValue(Type::getIntNTy(*llvmContext, 1));
 		}
 		YO_ASSERT(isError());
 		return NULL;
@@ -757,9 +792,9 @@ llvm::Value * YoLLVMCompiler::compileLogical(FuncParams * func, YoProgCompiler::
 {
 	YO_ASSERT((progOp->eop == YoProgCompiler::OP_LOGICAL_OR || progOp->eop == YoProgCompiler::OP_LOGICAL_AND) && progOp->ops.size() == 2);
 
-	BasicBlock * leftBB = BasicBlock::Create(*context, "left");
-	BasicBlock * rightBB = BasicBlock::Create(*context, "right");
-	BasicBlock * afterBB = BasicBlock::Create(*context, "after");
+	BasicBlock * leftBB = BasicBlock::Create(*llvmContext, "left");
+	BasicBlock * rightBB = BasicBlock::Create(*llvmContext, "right");
+	BasicBlock * afterBB = BasicBlock::Create(*llvmContext, "after");
 
 	BasicBlock * curBB = func->builder->GetInsertBlock();
 	if (curBB->size() == 0 || !curBB->back().isTerminator()) {
@@ -817,9 +852,9 @@ llvm::Value * YoLLVMCompiler::compileIf(FuncParams * func, YoProgCompiler::Scope
 		YO_ASSERT(isError());
 		return NULL;
 	}
-	BasicBlock * thenBB = BasicBlock::Create(*context, "then");
-	BasicBlock * elseBB = BasicBlock::Create(*context, "else");
-	BasicBlock * afterBB = BasicBlock::Create(*context, "after");
+	BasicBlock * thenBB = BasicBlock::Create(*llvmContext, "then");
+	BasicBlock * elseBB = BasicBlock::Create(*llvmContext, "else");
+	BasicBlock * afterBB = BasicBlock::Create(*llvmContext, "after");
 
 	func->builder->CreateCondBr(condition, thenBB, elseBB);
 
@@ -854,14 +889,109 @@ llvm::Value * YoLLVMCompiler::compileIf(FuncParams * func, YoProgCompiler::Scope
 
 	afterBB->insertInto(func->llvmFunc);
 	func->builder->SetInsertPoint(afterBB);
-	return Constant::getNullValue(Type::getInt8Ty(*context));
+	return Constant::getNullValue(Type::getInt8Ty(*llvmContext));
+}
 
-	/*
-	PHINode * PN = func->builder->CreatePHI(Type::getInt8Ty(*context), 2, "iftmp");
-	PN->addIncoming(func->builder->getInt8(1), thenBB);
-	PN->addIncoming(func->builder->getInt8(2), elseBB);
-	return PN;
-	*/
+llvm::Value * YoLLVMCompiler::compileBreakContinue(FuncParams * func, YoProgCompiler::Scope * progScope, YoProgCompiler::Operation * progOp)
+{
+	YO_ASSERT((progOp->eop == YoProgCompiler::OP_BREAK || progOp->eop == YoProgCompiler::OP_CONTINUE) && progOp->ops.size() == 0);
+	bool findLabel = progOp->strIndex >= 0;
+	std::string reqLabel = findLabel ? progCompiler->getConstStr(progOp->strIndex) : "";
+	std::vector<LabelBlock>& labels = progOp->eop == YoProgCompiler::OP_BREAK ? breakLabels : continueLabels;
+	std::vector<LabelBlock>::reverse_iterator it = labels.rbegin();
+	for (; it != labels.rend(); ++it) {
+		if (!findLabel || it->label == reqLabel) {
+			BasicBlock * block = it->block;
+			func->builder->CreateBr(block);
+			return Constant::getNullValue(Type::getInt8Ty(*llvmContext));
+		}
+	}
+	setError(ERROR_BREAK_CONTINUE, "%s block is not found", progOp->eop == YoProgCompiler::OP_BREAK ? "'Break'" : "'Continue'");
+	return NULL;
+}
+
+void YoLLVMCompiler::pushLabelBlock(std::vector<LabelBlock>& stack, const LabelBlock& b)
+{
+	stack.push_back(b);
+}
+
+bool YoLLVMCompiler::popLabelBlock(std::vector<LabelBlock>& stack, const LabelBlock& b)
+{
+	if (stack.size() < 1 || stack.back().block != b.block || stack.back().label != b.label) {
+		setError(ERROR_UNREACHABLE, "Label blocks are broken");
+		return false;
+	}
+	stack.pop_back();
+	return true;
+}
+
+llvm::Value * YoLLVMCompiler::compileFor(FuncParams * func, YoProgCompiler::Scope * progScope, YoProgCompiler::Operation * progOp)
+{
+	YO_ASSERT(progOp->eop == YoProgCompiler::OP_FOR && progOp->ops.size() == 0);
+
+	BasicBlock * condBB = BasicBlock::Create(*llvmContext, "condition");
+	BasicBlock * bodyBB = BasicBlock::Create(*llvmContext, "body");
+	BasicBlock * stepBB = BasicBlock::Create(*llvmContext, "step");
+	BasicBlock * afterBB = BasicBlock::Create(*llvmContext, "after");
+
+	pushLabelBlock(breakLabels, afterBB);
+	pushLabelBlock(continueLabels, stepBB);
+
+	BasicBlock * curBB = func->builder->GetInsertBlock();
+	if (curBB->size() == 0 || !curBB->back().isTerminator()) {
+		func->builder->CreateBr(condBB);
+	}
+	condBB->insertInto(func->llvmFunc);
+	func->builder->SetInsertPoint(condBB);
+
+	if (progOp->stmtFor.conditionOp) {
+		Value * condition = compileOp(func, progScope, progOp->stmtFor.conditionOp);
+		if (!condition) {
+			YO_ASSERT(isError());
+			return NULL;
+		}
+		func->builder->CreateCondBr(condition, bodyBB, afterBB);
+	}
+	else{
+		func->builder->CreateBr(bodyBB);
+	}
+
+	bodyBB->insertInto(func->llvmFunc);
+	func->builder->SetInsertPoint(bodyBB);
+	if (!compileScopeBody(func, progOp->stmtFor.bodyScope)) {
+		YO_ASSERT(isError());
+		stepBB->insertInto(func->llvmFunc);
+		afterBB->insertInto(func->llvmFunc);
+		return NULL;
+	}
+	// func->builder->SetInsertPoint(thenBB);
+	bodyBB = func->builder->GetInsertBlock();
+	if (bodyBB->size() == 0 || !bodyBB->back().isTerminator()) {
+		func->builder->CreateBr(stepBB);
+	}
+
+	stepBB->insertInto(func->llvmFunc);
+	func->builder->SetInsertPoint(stepBB);
+	if (!compileScopeBody(func, progOp->stmtFor.stepScope)) {
+		YO_ASSERT(isError());
+		afterBB->insertInto(func->llvmFunc);
+		return NULL;
+	}
+	// func->builder->SetInsertPoint(elseBB);
+	stepBB = func->builder->GetInsertBlock();
+	if (stepBB->size() == 0 || !stepBB->back().isTerminator()) {
+		func->builder->CreateBr(condBB);
+	}
+
+	afterBB->insertInto(func->llvmFunc);
+	func->builder->SetInsertPoint(afterBB);
+	
+	if (!popLabelBlock(breakLabels, afterBB) || !popLabelBlock(continueLabels, stepBB)) {
+		YO_ASSERT(isError());
+		return NULL;
+	}
+
+	return Constant::getNullValue(Type::getInt8Ty(*llvmContext));
 }
 
 llvm::Value * YoLLVMCompiler::compileCall(FuncParams * func, YoProgCompiler::Scope * progScope, YoProgCompiler::Operation * progOp)
@@ -914,7 +1044,7 @@ llvm::Value * YoLLVMCompiler::compileSubFunc(llvm::IRBuilder<> * builder, std::v
 	builder->CreateStore(subFunc, funcAddr);
 
 	Value * funcClosurePtr = builder->CreateStructGEP(temp, 1, "func_closure_ptr");
-	Value * zero = ConstantInt::get(Type::getInt32Ty(*context), 0);
+	Value * zero = ConstantInt::get(Type::getInt32Ty(*llvmContext), 0);
 	// zero = builder->CreateIntToPtr(zero, temp->getType()->getStructElementType(1)->getPointerTo());
 	funcClosurePtr = builder->CreateBitCast(funcClosurePtr, zero->getType()->getPointerTo());
 	builder->CreateStore(zero, funcClosurePtr);
@@ -937,7 +1067,7 @@ llvm::CallingConv::ID YoLLVMCompiler::getCallingConv(EYoCallingConv conv)
 	return CallingConv::C;
 }
 
-llvm::Function * YoLLVMCompiler::compileDeclFunc(ModuleParams * module, YoProgCompiler::Function * progFunc)
+llvm::Function * YoLLVMCompiler::compileDeclFunc(YoProgCompiler::Module * progModule, YoProgCompiler::Function * progFunc)
 {
 	switch (progFunc->parserNode->data.func.op) {
 	case T_FUNC:
@@ -963,11 +1093,11 @@ llvm::Function * YoLLVMCompiler::compileDeclFunc(ModuleParams * module, YoProgCo
 	if (progFunc->funcNativeType->isExtern) {
 		name = "_" + name;
 	}
-	Function * func = Function::Create(ft, Function::ExternalLinkage, name, module->llvmModule);
+	Function * func = Function::Create(ft, Function::ExternalLinkage, name, llvmModule);
 	YO_ASSERT(func);
 	func->setCallingConv(getCallingConv(progFunc->funcNativeType->conv));
-	progFunc->ext.index = funcs.size();
-	funcs.push_back(func);
+	progFunc->ext.index = llvmFuncs.size();
+	llvmFuncs.push_back(func);
 	progFuncs.push_back(progFunc);
 
 	int i = 0;
@@ -981,6 +1111,9 @@ llvm::Function * YoLLVMCompiler::compileDeclFunc(ModuleParams * module, YoProgCo
 
 bool YoLLVMCompiler::compileScopeBody(FuncParams * func, YoProgCompiler::Scope * progScope)
 {
+	if (!progScope) {
+		return true;
+	}
 	YoProgCompiler::Function * progFunc = progCompiler->getFunction(progScope);
 	for (int i = 0; i < (int)progScope->ops.size(); i++){
 		YoProgCompiler::Operation * progOp = progScope->ops[i];
@@ -992,7 +1125,7 @@ bool YoLLVMCompiler::compileScopeBody(FuncParams * func, YoProgCompiler::Scope *
 	return true;
 }
 
-bool YoLLVMCompiler::compileFuncBody(ModuleParams * module, YoProgCompiler::Function * progFunc, llvm::Function * func)
+bool YoLLVMCompiler::compileFuncBody(YoProgCompiler::Module * progModule, YoProgCompiler::Function * progFunc, llvm::Function * func)
 {
 	if (progFunc->funcNativeType->isExtern && progFunc->externFunc) {
 		// YO_ASSERT(progFunc->externFunc);
@@ -1002,16 +1135,16 @@ bool YoLLVMCompiler::compileFuncBody(ModuleParams * module, YoProgCompiler::Func
 		return true;
 	}
 	// Create a new basic block to start insertion into.
-	BasicBlock * bb = BasicBlock::Create(*context, "entry", func);
+	BasicBlock * bb = BasicBlock::Create(*llvmContext, "entry", func);
 	
-	IRBuilder<> builder(*context);
+	IRBuilder<> builder(*llvmContext);
 	builder.SetInsertPoint(bb);
 
 	std::vector<AllocaInst*> stackValues;
 	std::vector<llvm::Value*> argValues;
 	
 	FuncParams funcParams;
-	funcParams.module = module;
+	funcParams.progModule = progModule;
 	funcParams.builder = &builder;
 	funcParams.stackValues = &stackValues;
 	funcParams.argValues = &argValues;
@@ -1060,7 +1193,7 @@ bool YoLLVMCompiler::compileFuncBody(ModuleParams * module, YoProgCompiler::Func
 	SmallVector<char, 1000> buf;
 	raw_svector_ostream OS(buf);
 	if (!verifyFunction(*func, &OS)) {
-		module->llvmFPM->run(*func);
+		llvmFPM->run(*func);
 		return true;
 	}
 	// setError(ERROR_VERIFY_FUNC, "Error verify function %s", func->getName().str().c_str());

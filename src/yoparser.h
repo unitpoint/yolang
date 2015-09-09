@@ -37,6 +37,7 @@ enum EYoParserNodeType {
 	YO_NODE_BIN_OP,
 	YO_NODE_CONCAT,
 	YO_NODE_UNARY_OP,
+	YO_NODE_POST_UNARY_OP,
 	YO_NODE_CONST_NULL,
 	YO_NODE_CONST_TRUE,
 	YO_NODE_CONST_FALSE,
@@ -71,6 +72,7 @@ enum EYoParserNodeType {
 	YO_NODE_STMT_CATCH,
 	YO_NODE_STMT_RETURN,
 	YO_NODE_STMT_FOR,
+	YO_NODE_STMT_BREAK,
 	YO_NODE_STMT_IF,
 	YO_NODE_ELSEIF,
 	// YO_NODE_ELSEIF_LIST,
@@ -325,6 +327,11 @@ struct YoParserNode
 
 		struct {
 			YoParserNode * node;
+			int op;
+		} postUnaryOp;
+
+		struct {
+			YoParserNode * node;
 		} sizeOf;
 
 		struct {
@@ -374,9 +381,14 @@ struct YoParserNode
 		struct {
 			YoParserNode * init;
 			YoParserNode * condition;
-			YoParserNode * next;
+			YoParserNode * step;
 			YoParserNode * body;
 		} stmtFor;
+
+		struct {
+			int op;
+			YoParserNode * label;
+		} stmtBreak;
 
 		struct {
 			YoParserNode * ifExpr;
