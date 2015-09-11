@@ -190,26 +190,12 @@ public:
 		// VALUE_SCOPE,
 	};
 
-	class Value
+	class StackValue
 	{
 	public:
-
-		EValue evalue;
 
 		std::string name;
 		YoParserNode * parserNode;
-
-		Value(EValue evalue, const std::string& name, YoParserNode*);
-		virtual ~Value();
-
-	private:
-
-		Value(const Value&); // no body
-	};
-
-	class StackValue : public Value
-	{
-	public:
 
 		Type * type;
 		bool isArg;
@@ -340,17 +326,19 @@ public:
 		OP_TYPE,
 		OP_TYPE_STRUCT_ELEMENT,
 
-		OP_STACK_VALUE_PTR,
-		OP_STRUCT_ELEMENT_PTR,
-		OP_ELEMENT_PTR,
-		OP_PTR,
+		// OP_PTR,
 		// OP_INDIRECT,
-		OP_FUNC,
+		
+		OP_STACK_VALUE,
+		OP_STRUCT_ELEMENT,
+		OP_ELEMENT,
 
 		OP_LOAD,
+		OP_STORE,
 		OP_STORE_VALUE,
-		OP_STORE_PTR,
+		OP_STORE_REF,
 
+		OP_FUNC,
 		OP_RETURN,
 		OP_CALL_CLOSURE,
 		OP_CALL_FUNC,
@@ -378,7 +366,7 @@ public:
 		OP_LOGICAL_AND,
 
 		OP_STACK_VALUE_MEMZERO,
-		OP_VALUE_ZERO,
+		OP_ZERO_VALUE,
 	};
 
 	class Operation
@@ -484,15 +472,28 @@ public:
 	void dumpError();
 
 	bool findName(NameInfo& out, Scope*, const std::string&);
-	bool isValueOp(Operation * op);
+	// bool isLvalueOp(Operation * op);
 	bool isTypeOp(Operation * op);
 	bool getIntBits(Type * type, int& bits, bool& isSigned);
 	bool getFloatBits(Type * type, int& bits);
 
 	bool isMutable(Type*);
-	Type * addMut(Type * type, bool isMutable);
-	Type * removeMut(Type * type, bool& isMutable);
-	Type * getSubType(Type * ptrType, YoParserNode* = NULL);
+	// Type * addMut(Type * type, bool isMutable);
+	// Type * removeMut(Type * type, bool& isMutable);
+	Type * subType(Type * ptrType, YoParserNode*);
+
+	struct TypeAttrs
+	{
+		int refCount;
+		bool isRef;
+		bool isMutable;
+		
+		TypeAttrs(){ refCount = 0; isRef = isMutable = false; }
+	};
+
+	Type * baseType(Type * type);
+	Type * baseType(Type * type, TypeAttrs&, int maxRefCount = INT_MAX);
+	Type * unbaseType(Type * type, TypeAttrs&);
 
 	static std::string getTokenStr(YoParserNode*);
 	std::string getConstStr(int i);
@@ -522,7 +523,7 @@ protected:
 	std::map<int, Type*> binOpNumCastTypes;
 	std::map<int, CastOp> castOps;
 
-	std::vector<Operation*> ops;
+	std::vector<Operation*> allOps;
 
 	std::map<std::string, int> constStringsMap;
 	std::vector<std::string> constStrings;
@@ -530,12 +531,16 @@ protected:
 	std::map<std::string, Type*> globalTypes;
 	std::map<std::string, void*> symbols;
 
-	Operation * newOperation(EOperation, YoParserNode*);
-	Operation * newOperation(EOperation, Operation * sub, Type * type, YoParserNode*);
-	Operation * newStackValuePtrOp(StackValue * value, YoParserNode*);
-	Operation * newStructElementPtrOp(Operation * ptrOp, int index, YoParserNode*);
-	Operation * newFuncDataPtrOp(Scope*, Function * func, YoParserNode*);
-	
+	Operation * newOperation(EOperation, Type * type, YoParserNode*);
+	Operation * newOperation(EOperation, Type * type, Operation * sub, YoParserNode*);
+	Operation * newStackValueOp(StackValue * value, YoParserNode*);
+	Operation * newStructElementOp(Operation * refOp, int index, YoParserNode*);
+	Operation * newFuncDataOp(Scope*, Function * func, YoParserNode*);
+
+	Operation * newConstNullOp(Scope*, YoParserNode*);
+	Operation * newConstBoolOp(Scope*, bool val, YoParserNode*);
+	Operation * newConstStringOp(Scope*, const std::string& val, YoParserNode*);
+
 	Operation * newConstIntOp(Scope*, YO_U64 val, int bits, bool isSigned, YoParserNode*);
 	Operation * newConstIntOp(Scope*, YO_U64 val, Type * type, YoParserNode*);
 	Operation * newConstIntOp(Scope*, YO_U64 val, YoParserNode*);
@@ -572,11 +577,6 @@ protected:
 	Type * getIntPtrType(bool isSigned);
 	Type * getFloatType(int bits);
 
-	Type * getMutType(Type*, YoParserNode*);
-	Type * getConstType(Type*, YoParserNode*);
-	Type * getPtrType(Type*, YoParserNode* = NULL);
-	Type * getRefType(Type*, YoParserNode* = NULL);
-	Type * getArrayType(unsigned size, Type*, YoParserNode* = NULL);
 	Type * getParserStdType(int stdType);
 	Type * getParserType(Scope*, YoParserNode*);
 	Type * getScopeType(Scope*, YoParserNode*);
@@ -586,13 +586,28 @@ protected:
 
 	Type * declStructType(Scope*, EType, const std::string& name, YoParserNode*);
 
-	Type * getPtrSubType(Type * ptrType, YoParserNode* = NULL);
-	Type * getRefSubType(Type * refType, YoParserNode* = NULL);
-	Type * getPtrOrRefSubType(Type * ptrType, YoParserNode* = NULL);
-	Type * getValueType(Operation * op);
+	Type * mutType(Type*, YoParserNode*);
+	Type * unmutType(Type*, YoParserNode*);
+	
+	Type * constType(Type*, YoParserNode*);
+	Type * unconstType(Type*, YoParserNode*);
 
-	Type * getRefFromPtrType(Type * type, YoParserNode* = NULL);
-	Type * getPtrFromRefType(Type * type, YoParserNode* = NULL);
+	Type * ptrType(Type*, YoParserNode*);
+	Type * unptrType(Type*, YoParserNode*);
+
+	Type * refType(Type*, YoParserNode*);
+	Type * unrefType(Type*, YoParserNode*);
+
+	Type * arrayType(unsigned size, Type*, YoParserNode*);
+	Type * unarrayType(Type*, YoParserNode*);
+
+	// Type * getPtrSubType(Type * ptrType, YoParserNode* = NULL);
+	// Type * getRefSubType(Type * refType, YoParserNode* = NULL);
+	// Type * getPtrOrRefSubType(Type * ptrType, YoParserNode* = NULL);
+	// Type * getValueType(Operation * op);
+
+	Type * ptrToRefType(Type * type, YoParserNode*);
+	Type * refToPtrType(Type * type, YoParserNode*);
 
 	bool matchTypeTemplate(Scope*, Type *& src, Type * dst, bool init);
 
@@ -638,7 +653,7 @@ protected:
 	Operation * compileOp(Scope*, YoParserNode*);
 	Operation * compileQuotedString(Scope*, YoParserNode*);
 	Operation * compileSingleQuotedString(Scope*, YoParserNode*);
-	Operation * compileValue(Scope*, YoParserNode*);
+	Operation * compileValueOf(Scope*, YoParserNode*);
 
 	enum EConvertType
 	{
@@ -647,12 +662,14 @@ protected:
 	};
 
 	Operation * convertPtrToType(Scope*, Operation*, Type*, YoParserNode*);
-	Operation * convertOpToType(Scope*, Operation*, Type*, EConvertType, YoParserNode*);
+	Operation * convertToType(Scope*, Operation*, Type*, EConvertType, YoParserNode*);
 	Operation * convertArgToType(Scope*, Operation*, Type*, bool isExtern, YoParserNode*);
-	Operation * loadValue(Scope*, Operation*, YoParserNode*);
-	Operation * getValue(Scope*, Operation*, YoParserNode*);
-	Operation * getAddr(Scope*, Operation*, YoParserNode*);
-	Operation * getIndirect(Scope*, Operation*, YoParserNode*);
+	
+	Operation * loadValueOf(Operation*, YoParserNode*);
+	Operation * loadStackValueOf(StackValue*, YoParserNode*);
+	Operation * valueOf(Operation*, YoParserNode*);
+	Operation * addrOf(Operation*, YoParserNode*);
+	Operation * indirectOf(Operation*, YoParserNode*);
 
 	Operation * optimizeOpPass1(Scope*, Operation*);
 	bool optimizeScopePass1(Scope*);

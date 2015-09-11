@@ -1843,9 +1843,15 @@ void yoParserStmtIf(YYSTYPE * r, YYSTYPE * ifExpr, YYSTYPE * thenStmt, YYSTYPE *
 	node->data.stmtIf.ifExpr = ifExpr->node;
 	node->data.stmtIf.thenStmt = thenStmt->node;
 	if (elseStmt && elseStmt->node) {
-		YO_ASSERT(elseStmt->node->type == YO_NODE_ELSE);
-		// node->data.stmtIf.elseStmt = elseStmt->node;
-		node->data.stmtIf.elseStmt = elseStmt->node->data.elseElem.node;
+		if (elseStmt->node->type == YO_NODE_ELSE) {
+			node->data.stmtIf.elseStmt = elseStmt->node->data.elseElem.node;
+		}
+		else if (elseStmt->node->type == YO_NODE_STMT_IF) {
+			node->data.stmtIf.elseStmt = elseStmt->node;
+		}
+		else{
+			YO_ASSERT(false);
+		}
 	}
 	// node->token = ifExpr->node->token;
 	r->node = node;

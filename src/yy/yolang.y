@@ -282,7 +282,7 @@ decl_var_list:
 	|	decl_var_list ',' decl_var_elem		{ yoParserList(&$$, &$1, &$3, parm, &yyloc); }
 	
 decl_var_elem:
-		mut_or_empty T_NAME type	{ yoParserDeclVar(&$$, $1.op == T_MUTABLE, &$2, &$3, parm, &yyloc); }
+		mut_or_empty T_NAME type_or_empty	{ yoParserDeclVar(&$$, $1.op == T_MUTABLE, &$2, &$3, parm, &yyloc); }
 	|	mut_or_empty T_NAME type_or_empty T_ASSIGN expr {
 				yoParserDeclVar(&$1, $1.op == T_MUTABLE, &$2, &$3, parm, &yyloc); 
 				yoParserAssign(&$2, &$2, &$5, T_INIT_ASSIGN, parm, &yyloc); 

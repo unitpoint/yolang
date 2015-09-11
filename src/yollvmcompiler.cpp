@@ -230,7 +230,7 @@ llvm::Type * YoLLVMCompiler::getType(YoProgCompiler::Type * progType)
 
 	case YoProgCompiler::TYPE_MUT: 
 	case YoProgCompiler::TYPE_CONST:
-		return getType(progCompiler->getSubType(progType));
+		return getType(progCompiler->subType(progType, NULL));
 
 	default:
 		setError(ERROR_UNREACHABLE, "Error type: %d\n", (int)progType->etype);
@@ -473,7 +473,7 @@ llvm::Value * YoLLVMCompiler::compileOp(FuncParams * func, YoProgCompiler::Scope
 		YO_ASSERT(progOp->ops.size() == 0);
 		return Constant::getNullValue(getType(progOp->type));
 
-	case YoProgCompiler::OP_VALUE_ZERO:
+	case YoProgCompiler::OP_ZERO_VALUE:
 		YO_ASSERT(progOp->ops.size() == 0);
 		return Constant::getNullValue(getType(progOp->type));
 
@@ -502,16 +502,7 @@ llvm::Value * YoLLVMCompiler::compileOp(FuncParams * func, YoProgCompiler::Scope
 	case YoProgCompiler::OP_CMP_GT:
 		YO_ASSERT(progOp->ops.size() == 2);
 		YO_ASSERT(progOp->type && progOp->ops[0]->type && progOp->ops[1]->type);
-#ifdef YO_DEBUG
-		{
-			bool isMutable[2];
-			YoProgCompiler::Type * nakedTypes[2] = { progCompiler->removeMut(progOp->ops[0]->type, isMutable[0]),
-				progCompiler->removeMut(progOp->ops[1]->type, isMutable[1]) };
-			if (nakedTypes[0] != nakedTypes[1]) {
-				int i = 0;
-			}
-		}
-#endif
+		YO_ASSERT(progCompiler->baseType(progOp->ops[0]->type) == progCompiler->baseType(progOp->ops[1]->type));
 		left = compileOp(func, progScope, progOp->ops[0]);
 		right = compileOp(func, progScope, progOp->ops[1]);
 		if (!left || !right) {
@@ -537,16 +528,7 @@ llvm::Value * YoLLVMCompiler::compileOp(FuncParams * func, YoProgCompiler::Scope
 	case YoProgCompiler::OP_BIT_XOR:
 		YO_ASSERT(progOp->ops.size() == 2);
 		YO_ASSERT(progOp->type && progOp->ops[0]->type && progOp->ops[1]->type);
-#ifdef YO_DEBUG
-		{
-			bool isMutable[2];
-			YoProgCompiler::Type * nakedTypes[2] = { progCompiler->removeMut(progOp->ops[0]->type, isMutable[0]), 
-				progCompiler->removeMut(progOp->ops[1]->type, isMutable[1]) };
-			if (nakedTypes[0] != nakedTypes[1]) {
-				int i = 0;
-			}
-		}
-#endif
+		YO_ASSERT(progCompiler->baseType(progOp->ops[0]->type) == progCompiler->baseType(progOp->ops[1]->type));
 		left = compileOp(func, progScope, progOp->ops[0]);
 		right = compileOp(func, progScope, progOp->ops[1]);
 		if (!left || !right) {
@@ -611,7 +593,7 @@ llvm::Value * YoLLVMCompiler::compileOp(FuncParams * func, YoProgCompiler::Scope
 	case YoProgCompiler::OP_CALL_FUNC:
 		return compileCall(func, progScope, progOp);
 
-	case YoProgCompiler::OP_STACK_VALUE_PTR:
+	case YoProgCompiler::OP_STACK_VALUE:
 		for (i = 0; i < (int)progOp->ops.size(); i++) {
 			value = compileOp(func, progScope, progOp->ops[i]);
 			if (!value) {
@@ -631,7 +613,7 @@ llvm::Value * YoLLVMCompiler::compileOp(FuncParams * func, YoProgCompiler::Scope
 		}
 		return (*func->stackValues)[progOp->stackValue->ext.index]; */
 
-	case YoProgCompiler::OP_STRUCT_ELEMENT_PTR:
+	case YoProgCompiler::OP_STRUCT_ELEMENT:
 		YO_ASSERT(progOp->ops.size() == 1);
 		srcPtr = compileOp(func, progScope, progOp->ops[0]);
 		if (!srcPtr) {
@@ -640,7 +622,7 @@ llvm::Value * YoLLVMCompiler::compileOp(FuncParams * func, YoProgCompiler::Scope
 		}
 		return func->builder->CreateStructGEP(srcPtr, progOp->structElementIndex);
 
-	case YoProgCompiler::OP_ELEMENT_PTR: {
+	case YoProgCompiler::OP_ELEMENT: {
 		YO_ASSERT(progOp->ops.size() == 2);
 		srcPtr = compileOp(func, progScope, progOp->ops[0]);
 		value = compileOp(func, progScope, progOp->ops[1]);
@@ -652,14 +634,6 @@ llvm::Value * YoLLVMCompiler::compileOp(FuncParams * func, YoProgCompiler::Scope
 		Value * args[] = { zero, value };
 		return func->builder->CreateInBoundsGEP(srcPtr, args);
 	}
-	case YoProgCompiler::OP_PTR:
-		YO_ASSERT(progOp->ops.size() == 1);
-		return compileOp(func, progScope, progOp->ops[0]);
-
-	/*case YoProgCompiler::OP_INDIRECT:
-		YO_ASSERT(progOp->ops.size() == 1);
-		return compileOp(func, progScope, progOp->ops[0]);*/
-
 	case YoProgCompiler::OP_FUNC:
 		YO_ASSERT(progOp->ops.size() == 0);
 		return llvmFuncs[progOp->func->ext.index];
@@ -672,7 +646,7 @@ llvm::Value * YoLLVMCompiler::compileOp(FuncParams * func, YoProgCompiler::Scope
 			YO_ASSERT(isError());
 			return NULL;
 		}
-		if (op->eop == YoProgCompiler::OP_STACK_VALUE_PTR) {
+		if (op->eop == YoProgCompiler::OP_STACK_VALUE) {
 			YO_ASSERT(!op->stackValue->initStackValue);
 			YO_ASSERT(srcPtr == (*func->stackValues)[op->stackValue->ext.index]);
 			if (op->stackValue->isArg && !op->stackValue->isChanged) {
@@ -683,45 +657,35 @@ llvm::Value * YoLLVMCompiler::compileOp(FuncParams * func, YoProgCompiler::Scope
 	}
 
 	case YoProgCompiler::OP_STORE_VALUE:
-	case YoProgCompiler::OP_STORE_PTR:
 		YO_ASSERT(progOp->ops.size() == 2);
-		dstPtr = compileOp(func, progScope, progOp->ops[1]);	// dst
-		if (progOp->eop == YoProgCompiler::OP_STORE_VALUE || progCompiler->isValueOp(progOp->ops[0])){ // src
-			/* if (progOp->ops[0]->eop == YoProgCompiler::OP_VALUE_ZERO) {
-				if (progOp->ops[1]->eop == YoProgCompiler::OP_STACK_VALUE_PTR) {
-					YoProgCompiler::StackValue * progSV = progOp->ops[1]->stackValue;
-					if (progSV->initStackValue && progSV->initStructElementIndex >= 0) {
-						return dstPtr;
-					}
-				}
-			} */
-			value = compileOp(func, progScope, progOp->ops[0]);	// src
-			if (!value || !dstPtr) {
-				YO_ASSERT(isError());
-				return NULL;
-			}
-			noValue = func->builder->CreateStore(value, dstPtr);
-			return dstPtr; // progOp->type ? value : noValue;
+		value = compileOp(func, progScope, progOp->ops[0]);		// value src
+		dstPtr = compileOp(func, progScope, progOp->ops[1]);	// ptr dst
+		if (!value || !dstPtr) {
+			YO_ASSERT(isError());
+			return NULL;
 		}
-		YO_ASSERT(!progCompiler->isValueOp(progOp->ops[0]));
-		// store from ptr
+		noValue = func->builder->CreateStore(value, dstPtr);
+		return dstPtr;
+
+	case YoProgCompiler::OP_STORE_REF:
+		YO_ASSERT(progOp->ops.size() == 2);
 		srcPtr = compileOp(func, progScope, progOp->ops[0]);	// ptr src
+		dstPtr = compileOp(func, progScope, progOp->ops[1]);	// ptr dst
 		if (!srcPtr || !dstPtr) {
 			YO_ASSERT(isError());
 			return NULL;
 		}
 		if (srcPtr == dstPtr) {
-			// return progOp->type ? srcPtr : noValue;
-			return dstPtr; // srcPtr;
+			return dstPtr;
 		}
 		size = llvmEE->getDataLayout()->getTypeStoreSize(dstPtr->getType()->getContainedType(0));
 		if (size > sizeof(void*)*4) {
 			noValue = func->builder->CreateMemCpy(dstPtr, srcPtr, size, 1);
-			return dstPtr; // progOp->type ? srcPtr : noValue;
+			return dstPtr;
 		}
 		value = func->builder->CreateLoad(srcPtr);
 		noValue = func->builder->CreateStore(value, dstPtr);
-		return dstPtr; // progOp->type ? srcPtr : noValue;
+		return dstPtr;
 
 	case YoProgCompiler::OP_STACK_VALUE_MEMZERO:
 		if (progOp->stackValue->initStackValue) {

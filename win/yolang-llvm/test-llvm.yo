@@ -13,7 +13,6 @@ func testBytes(b bool, r &TestBytes) int {
 	return r.b
 }
 
-/*
 func test(i, j int) int {
 	return i + j
 }
@@ -25,7 +24,6 @@ func testPow(a, b float) float {
 func testPowI(a, b int) int {
 	return (a ** b) as int
 }
-*/
 
 extern func snprintf(buf *mut byte, size uint, fmt *byte, ...) // [cdecl]
 extern func printf(fmt *byte, ...)
@@ -41,13 +39,11 @@ func main() double {
 	printf("i: %d, j: %d\n", i, j)
 	*/
 	
-	for let mut i = 0; i < 10; i++ {
+	/* for let mut i = 0; i < 10; i++ {
 		printf("i: %d\n", i) if i % 2 == 0
 		break if i == 7
 		// i = i + 1
-	}
-	
-	return 123
+	} */
 	
 	/*
 	let _i = 0b01010_u16, _j = 0b01101_i16
@@ -60,53 +56,60 @@ func main() double {
 	*/
 	
 	/*
-	let b = true
+	let mut b = true
 	
-	let a1 = 2.0_f32
+	let mut a1 = 2.0_f32
 	let a2 = 3.0_f32
 	let a3 = 5.0_f32
 	
 	// printf("Hello World!\n")
 	
-	if(a1 > a2){
+	if a1 > a2 {
 		return a1 ** a2 // 8
-	}else if(a2 > a3){
+	}elseif a2 > a3 {
 		return a1 ** a3 // 32
-	}else if(false){
+	}elseif false {
 		return a2 ** a3 // 243
+	}else{
+		b = true
 	}
 	
-	a1 = testPow(a1, a2)
+	let a4 = testPow(a1, a2)
+	printf("testPow(%f, %f): %f\n", a1, a2, a4)
 	// return a1
 
 	let b1 = 5
 	let b2 = 2
-	b1 = testPowI(b1, b2)
+	let b4 = testPowI(b1, b2)
+	printf("testPowI(%d, %d): %d\n", b1, b2, b4)
 	
-	let jj = test(100000, 80000)
+	let mut jj = test(100000, 80000)
 	
 	// let ff func(i, j int)int = test
 	let ff = test
 	jj = ff(400000, 30000)
+	return jj
 	*/
 
-	/*
 	type Test class {
 		a, b int
 		c TestBytes
 	}
+	/*
 	let s &Test = *(null as *Test)
+	printf("Addr: %p", &s)
 	
-	// let t = Test{b: 700}
+	let mut t // = Test{b: 700}
 	// t.c.b = 10
 	// t.c.c = t.GetA()
 	// t.b = 500
 	
-	// t = Test{a=400, b=700}
+	t = Test{a:400, b:700}
 	// let b_false = func()bool{ return false; }
 	// let b_true = func()bool{ return true; }
-	let str = "Hello\x20World: %d\n"
-	printf(str, 123)
+	let str = "Hello\x20World: %d, t.b: %d\n"
+	printf(str, 123, t.b)
+	return t.a
 	*/
 	
 	/*
@@ -117,16 +120,16 @@ func main() double {
 	if b_res {
 		return b_res // testBytes(b_res, t.c)
 	}
+	return 123
 	*/
 	
-	/*
 	let mut t = Test{300, 600, TestBytes{1, 2, 3}}
 	let mut test &Test = t
 	let mut r &TestBytes = *&*&test.c
 	if true {
 		printf("TestBytes.b: %d\n", r.b as int)
-		r.b = 3
-		return r.b
+		r.b = 10
+		// return r.b
 	}
 	
 	let p = &t.c
@@ -134,7 +137,6 @@ func main() double {
 		return p.b
 	}
 	return r.b
-	*/
 	
 	/*
 	type a [10]byte
