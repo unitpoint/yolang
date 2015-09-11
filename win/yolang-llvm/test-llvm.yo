@@ -1,5 +1,9 @@
 module HelloWorld
 
+extern func snprintf(buf *mut byte, size uint, fmt *byte, ...) // [cdecl]
+extern func printf(fmt *byte, ...)
+
+/*
 type ClosureData class {
 	
 }
@@ -25,14 +29,18 @@ func testPowI(a, b int) int {
 	return (a ** b) as int
 }
 
-extern func snprintf(buf *mut byte, size uint, fmt *byte, ...) // [cdecl]
-extern func printf(fmt *byte, ...)
-
 func getVal() int {
 	return 10
 }
+*/
 
 func main() double {
+	let f float32 = 1
+	// let i &int = *(&f as *int)
+	let i = f as &int
+	printf("f: %f, i: %x", f, i)
+	return i
+	
 	/*
 	let mut i = getVal(), mut j = i + 10
 	i = j++
@@ -91,10 +99,13 @@ func main() double {
 	return jj
 	*/
 
+	/*
 	type Test class {
 		a, b int
 		c TestBytes
 	}
+	*/
+	
 	/*
 	let s &Test = *(null as *Test)
 	printf("Addr: %p", &s)
@@ -123,6 +134,7 @@ func main() double {
 	return 123
 	*/
 	
+	/*
 	let mut t = Test{300, 600, TestBytes{1, 2, 3}}
 	let mut test &Test = t
 	let mut r &TestBytes = *&*&test.c
@@ -137,6 +149,7 @@ func main() double {
 		return p.b
 	}
 	return r.b
+	*/
 	
 	/*
 	type a [10]byte

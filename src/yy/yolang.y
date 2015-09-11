@@ -197,7 +197,10 @@ void yyerror(const char* s);
 %token	T_IS  "is (T_IS)"
 */
 
-%right T_NOT T_TILDE T_INC T_DEC T_UNARY T_POST_UNARY T_AT 
+%left	T_AS
+%token	T_AS  "as (T_AS)"
+
+%right T_NOT T_TILDE T_INC T_DEC T_UNARY T_POST_UNARY T_AT  T_INDIRECT T_ADDR
 %token T_NOT	"! (T_NOT)"
 %token T_TILDE	"~ (T_TILDE)"
 %token T_INC	"++ (T_INC)"
@@ -209,9 +212,6 @@ void yyerror(const char* s);
 
 %left	T_DOT
 %token	T_DOT	". (T_DOT)"
-
-%left	T_AS
-%token	T_AS  "as (T_AS)"
 
 %token	T_INDIRECT	"* (T_INDIRECT)"
 %token	T_ADDR		"& (T_ADDR)"

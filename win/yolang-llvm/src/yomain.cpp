@@ -41,8 +41,8 @@ void main()
 #endif
 
 	// const char * filename = "../../yo/test_refs.yo";
-	const char * filename = "fannkuch.yo";
-	// const char * filename = "test-llvm.yo";
+	// const char * filename = "fannkuch.yo";
+	const char * filename = "test-llvm.yo";
 	// const char * filename = "test-01.yo";
 	FILE * f = fopen(filename, "rb");
 	if (!f) {

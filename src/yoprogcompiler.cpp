@@ -2948,7 +2948,7 @@ YoProgCompiler::Operation * YoProgCompiler::optimizeOpPass1(Scope * scope, Opera
 	case OP_CAST_FP_TO_UI:
 	case OP_CAST_FP_TRUNC:
 	case OP_CAST_FP_EXT:
-	case OP_CAST_PTR:
+	// case OP_CAST_PTR:
 		YO_ASSERT(op->ops.size() == 1);
 		if (op->ops[0]->type->etype == TYPE_REF) {
 			int i = 0;
