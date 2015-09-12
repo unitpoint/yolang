@@ -111,6 +111,11 @@ CLOSE_BRACKET	= (")"|"}");
 <ST_YOLANG,ST_INJECT>"*" { return T_MUL; }
 <ST_YOLANG,ST_INJECT>"/" { return T_DIV; }
 <ST_YOLANG,ST_INJECT>"%" { return T_MOD; }
+<ST_YOLANG,ST_INJECT>"|" { return T_OR; }
+<ST_YOLANG,ST_INJECT>"&" { return T_AND; }
+<ST_YOLANG,ST_INJECT>"^" { return T_XOR; }
+<ST_YOLANG,ST_INJECT>">>" { return T_RSH; }
+<ST_YOLANG,ST_INJECT>"<<" { return T_LSH; }
 <ST_YOLANG,ST_INJECT>"**" { return T_POW; }
 <ST_YOLANG,ST_INJECT>".." { return T_CONCAT; }
 <ST_YOLANG,ST_INJECT>"<-" { return T_CHAN_ACCESS; }
@@ -125,12 +130,13 @@ CLOSE_BRACKET	= (")"|"}");
 <ST_YOLANG,ST_INJECT>"*=" { return T_MUL_ASSIGN; }
 <ST_YOLANG,ST_INJECT>"/=" { return T_DIV_ASSIGN; }
 <ST_YOLANG,ST_INJECT>"%=" { return T_MOD_ASSIGN; }
+<ST_YOLANG,ST_INJECT>"|=" { return T_OR_ASSIGN; }
+<ST_YOLANG,ST_INJECT>"&=" { return T_AND_ASSIGN; }
+<ST_YOLANG,ST_INJECT>"^=" { return T_XOR_ASSIGN; }
+<ST_YOLANG,ST_INJECT>">>=" { return T_RSH_ASSIGN; }
+<ST_YOLANG,ST_INJECT>"<<=" { return T_LSH_ASSIGN; }
 <ST_YOLANG,ST_INJECT>"**=" { return T_POW_ASSIGN; }
 <ST_YOLANG,ST_INJECT>"..=" { return T_CONCAT_ASSIGN; }
-
-<ST_YOLANG,ST_INJECT>"|" { return T_OR; }
-<ST_YOLANG,ST_INJECT>"&" { return T_AND; }
-<ST_YOLANG,ST_INJECT>"^" { return T_XOR; }
 
 <ST_YOLANG,ST_INJECT>"||" { return T_OROR; }
 <ST_YOLANG,ST_INJECT>"&&" { return T_ANDAND; }
@@ -175,7 +181,7 @@ CLOSE_BRACKET	= (")"|"}");
 <ST_YOLANG,ST_INJECT>"false" { return T_FALSE; }
 <ST_YOLANG,ST_INJECT>"null" { return T_NULL; }
 
-<ST_YOLANG,ST_INJECT>"module" { return T_MODULE; }
+<ST_YOLANG,ST_INJECT>"mod" { return T_MODULE; }
 <ST_YOLANG,ST_INJECT>"import" { return T_IMPORT; }
 <ST_YOLANG,ST_INJECT>"extern" { return T_EXTERN; }
 <ST_YOLANG,ST_INJECT>"void" { return T_VOID; }

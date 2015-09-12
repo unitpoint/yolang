@@ -111,6 +111,7 @@ struct YoParserStackElement
 	YoParserStackElement();
 };
 
+class YoSystem;
 class YoParser
 {
 public:
@@ -172,15 +173,16 @@ public:
 	int errorLine;
 	int errorLinePos;
 
-	YoParser(const char * input);
-	YoParser(const char * input, int len);
+	YoSystem * system;
+
+	YoParser(YoSystem*, const char * input);
+	YoParser(YoSystem*, const char * input, int len);
 	~YoParser();
 
 	bool isError() const;
 
-
 	void dumpError();
-	void dumpErrorLine(int line, int pos);
+	void dumpErrorLine(int line, int pos, int len);
 	void dumpErrorLine(const YoParserToken& token);
 
 	bool run();
@@ -293,7 +295,7 @@ struct YoParserNode
 		} declType;
 
 		struct {
-			bool isMutable;
+			// bool isMutable;
 			YoParserNode * name;
 			YoParserNode * type;
 		} declVar;

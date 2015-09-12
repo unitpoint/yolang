@@ -24,8 +24,9 @@ using namespace llvm;
 
 static bool llvmInitialized = false;
 
-YoLLVMCompiler::YoLLVMCompiler(YoProgCompiler * p, const std::string& p_llvmModuleName, EBuildType p_buildType) : llvmModuleName(p_llvmModuleName)
+YoLLVMCompiler::YoLLVMCompiler(YoSystem * s, YoProgCompiler * p, const std::string& p_llvmModuleName, EBuildType p_buildType) : llvmModuleName(p_llvmModuleName)
 {
+	system = s;
 	progCompiler = p;
 	buildType = p_buildType;
 	error = ERROR_NOTHING;
@@ -63,18 +64,31 @@ void YoLLVMCompiler::reset()
 	resetError();
 }
 
+void YoLLVMCompiler::dumpError()
+{
+	if (isError()) {
+		printf("[err-llvmcompiler-%d] %s\n", (int)error, errorMsg.c_str());
+		if (errorNode) {
+			progCompiler->parser->dumpErrorLine(errorNode->token);
+		}
+	}
+	else{
+		printf("<NO ERROR>\n");
+	}
+}
+
 void YoLLVMCompiler::resetError()
 {
 	error = ERROR_NOTHING;
 	errorMsg = "";
 }
 
-void YoLLVMCompiler::setError(Error err)
+void YoLLVMCompiler::setError(Error err, YoParserNode * node)
 {
-	setError(err, "");
+	setError(err, node, "");
 }
 
-void YoLLVMCompiler::setError(Error err, const char * msg, ...)
+void YoLLVMCompiler::setError(Error err, YoParserNode * node, const char * msg, ...)
 {
 	va_list va;
 	va_start(va, msg);
@@ -82,12 +96,12 @@ void YoLLVMCompiler::setError(Error err, const char * msg, ...)
 	char * buf = new char[BUF_SIZE];
 	YO_ASSERT(buf);
 	vsprintf_s(buf, BUF_SIZE, msg, va);
-	setError(err, std::string(buf));
+	setError(err, node, std::string(buf));
 	delete[] buf;
 	va_end(va);
 }
 
-void YoLLVMCompiler::setError(Error err, const std::string& msg)
+void YoLLVMCompiler::setError(Error err, YoParserNode * node, const std::string& msg)
 {
 	// YO_DEBUG_BREAK;
 	if (error != ERROR_NOTHING) {
@@ -96,6 +110,7 @@ void YoLLVMCompiler::setError(Error err, const std::string& msg)
 	}
 	error = err;
 	errorMsg = msg;
+	errorNode = node;
 }
 
 bool YoLLVMCompiler::isError() const
@@ -138,7 +153,7 @@ bool YoLLVMCompiler::run()
 {
 	reset();
 	if (progCompiler->isError()) {
-		setError(ERROR_IN_PROGCOMPILER, "Error in prog compiler");
+		setError(ERROR_IN_PROGCOMPILER, progCompiler->errorNode, "Error in prog compiler");
 		return false;
 	}
 
@@ -161,7 +176,7 @@ bool YoLLVMCompiler::run()
 		.setMCJITMemoryManager(llvm::make_unique<SectionMemoryManager>())
 		.create();
 	if (!llvmEE) {
-		setError(ERROR_UNREACHABLE, "Could not create ExecutionEngine: %s", errStr.c_str());
+		setError(ERROR_UNREACHABLE, NULL, "Could not create ExecutionEngine: %s", errStr.c_str());
 		return false;
 	}
 	llvmModule->setDataLayout(llvmEE->getDataLayout());
@@ -169,22 +184,53 @@ bool YoLLVMCompiler::run()
 
 	initFPM();
 
-	// main
-	for (int i = (int)progCompiler->modules.size() - 1; i >= 0; i--) {
-		YoProgCompiler::Module * progModule = progCompiler->modules[i];
-		if (!compileModule(progModule)) {
+	int i, j, saveFuncsNumber = (int)llvmFuncs.size();
+	YoProgCompiler::Module * progModule;
+	YoProgCompiler::Function * progFunc;
+	for (i = (int)progCompiler->modules.size() - 1; i >= 0; i--) {
+		progModule = progCompiler->modules[i];
+		/* if (!compileModule(progModule)) {
 			YO_ASSERT(isError());
 			// llvmModule->dump();
 			llvmContext = NULL;
 			return false;
+		} */
+		for (j = 0; j < (int)progModule->vars.size(); j++) {
+			YoProgCompiler::Variable * var = progModule->vars[j];
+			YO_ASSERT(var->isGlobal);
+			Type * type = getType(var->type);
+			if (!type) {
+				YO_ASSERT(isError());
+				return false;
+			}
+			std::string name = system->getUniqName((progModule->name + "." + var->name + "-%d").c_str());
+			GlobalVariable * globalVar = new GlobalVariable(*llvmModule, type, false,
+				GlobalVariable::LinkageTypes::InternalLinkage, Constant::getNullValue(type), name);
+			var->ext.index = (int)llvmGlobalVars.size();
+			llvmGlobalVars.push_back(globalVar);
+		}
+		YO_ASSERT(progModule->initFunc);
+		// for (j = (int)progModule->funcs.size() - 1; i >= 0; i--) {
+		for (j = 0; j < (int)progModule->funcs.size(); j++) {
+			progFunc = progModule->funcs[j];
+			if (!compileDeclFunc(progModule, progFunc)) {
+				return false;
+			}
 		}
 	}
-	
+	for (i = saveFuncsNumber; i < (int)llvmFuncs.size(); i++) {
+		Function * func = llvmFuncs[i];
+		progFunc = progFuncs[i];
+		YO_ASSERT(progFunc->ext.index == i);
+		if (!compileFuncBody(progModule, progFunc, func)) {
+			return false;
+		}
+	}
+
 	SmallVector<char, 1000> buf;
 	raw_svector_ostream OS(buf);
 	if (verifyModule(*llvmModule, &OS)) {
-		// setError(ERROR_VERIFY_MODULE, "Error verify module %s", llvmModule->getName().str().c_str());
-		setError(ERROR_VERIFY_MODULE, OS.str());
+		setError(ERROR_UNREACHABLE, NULL, OS.str());
 		// llvmModule->dump();
 		// llvmContext = NULL;
 		return false;
@@ -232,8 +278,12 @@ llvm::Type * YoLLVMCompiler::getType(YoProgCompiler::Type * progType)
 	case YoProgCompiler::TYPE_CONST:
 		return getType(progCompiler->subType(progType, NULL));
 
+	case YoProgCompiler::TYPE_UNKNOWN_YET:
+		setError(ERROR_UNREACHABLE, progType->parserNode, "Unknown type");
+		return NULL;
+
 	default:
-		setError(ERROR_UNREACHABLE, "Error type: %d\n", (int)progType->etype);
+		setError(ERROR_UNREACHABLE, progType->parserNode, "Unknown type: %d", (int)progType->etype);
 		return NULL;
 	}
 	progType->ext.index = llvmTypes.size();
@@ -345,7 +395,7 @@ llvm::ArrayType * YoLLVMCompiler::getArrayType(YoProgCompiler::Type * _progType)
 	return arrayType;
 }
 
-llvm::Instruction::CastOps YoLLVMCompiler::getCastOp(YoProgCompiler::EOperation eop)
+llvm::Instruction::CastOps YoLLVMCompiler::getCastOp(YoProgCompiler::EOperation eop, YoParserNode * node)
 {
 	switch (eop) {
 	case YoProgCompiler::OP_CAST_TRUNC:		return Instruction::Trunc;
@@ -358,11 +408,11 @@ llvm::Instruction::CastOps YoLLVMCompiler::getCastOp(YoProgCompiler::EOperation 
 	case YoProgCompiler::OP_CAST_FP_TRUNC:	return Instruction::FPTrunc;
 	case YoProgCompiler::OP_CAST_FP_EXT:	return Instruction::FPExt;
 	}
-	setError(ERROR_UNREACHABLE, "Error cast op: %d", (int)eop);
+	setError(ERROR_UNREACHABLE, node, "Error cast op: %d", (int)eop);
 	return Instruction::Trunc;
 }
 
-llvm::Instruction::BinaryOps YoLLVMCompiler::getBinOp(YoProgCompiler::EOperation eop, bool isFloat, bool isSigned)
+llvm::Instruction::BinaryOps YoLLVMCompiler::getBinOp(YoProgCompiler::EOperation eop, bool isFloat, bool isSigned, YoParserNode * node)
 {
 	switch (eop) {
 	case YoProgCompiler::OP_BIN_ADD:	
@@ -391,12 +441,20 @@ llvm::Instruction::BinaryOps YoLLVMCompiler::getBinOp(YoProgCompiler::EOperation
 	case YoProgCompiler::OP_BIT_XOR:
 		YO_ASSERT(!isFloat);
 		return Instruction::BinaryOps::Xor;
+
+	case YoProgCompiler::OP_BIT_RSH:
+		YO_ASSERT(!isFloat);
+		return Instruction::BinaryOps::LShr;
+
+	case YoProgCompiler::OP_BIT_LSH:
+		YO_ASSERT(!isFloat);
+		return Instruction::BinaryOps::Shl;
 	}
-	setError(ERROR_UNREACHABLE, "Error bin op: %d", (int)eop);
+	setError(ERROR_UNREACHABLE, node, "Error bin op: %d", (int)eop);
 	return Instruction::BinaryOps::Add;
 }
 
-llvm::CmpInst::Predicate YoLLVMCompiler::getCmpOp(YoProgCompiler::EOperation eop, bool isFloat, bool isSigned)
+llvm::CmpInst::Predicate YoLLVMCompiler::getCmpOp(YoProgCompiler::EOperation eop, bool isFloat, bool isSigned, YoParserNode * node)
 {
 	switch (eop) {
 	case YoProgCompiler::OP_CMP_EQ:
@@ -412,50 +470,89 @@ llvm::CmpInst::Predicate YoLLVMCompiler::getCmpOp(YoProgCompiler::EOperation eop
 	case YoProgCompiler::OP_CMP_GT:
 		return isFloat ? CmpInst::Predicate::FCMP_OGT : (isSigned ? CmpInst::Predicate::ICMP_SGT : CmpInst::Predicate::ICMP_UGT);
 	}
-	setError(ERROR_UNREACHABLE, "Error compare op: %d", (int)eop);
+	setError(ERROR_UNREACHABLE, node, "Error compare op: %d", (int)eop);
 	return isFloat ? CmpInst::Predicate::FCMP_OEQ : CmpInst::Predicate::ICMP_EQ;
 }
 
+#if 0
 bool YoLLVMCompiler::compileModule(YoProgCompiler::Module * progModule)
 {
-	// for (int i = 0; i < (int)progModule->funcs.size(); i++) {
-	int i, saveFuncsNumber = (int)llvmFuncs.size();
+	int i;
+	for (i = 0; i < (int)progModule->vars.size(); i++) {
+		YoProgCompiler::Variable * var = progModule->vars[i];
+		YO_ASSERT(var->isGlobal);
+		Type * type = getType(var->type);
+		if (!type) {
+			YO_ASSERT(isError());
+			return false;
+		}
+		std::string name = system->getUniqName((progModule->name + "." + var->name + "-%d").c_str());
+		GlobalVariable * globalVar = new GlobalVariable(*llvmModule, type, false,
+			GlobalVariable::LinkageTypes::InternalLinkage, Constant::getNullValue(type), name);
+		/* Value * globalVar = llvmModule->getOrInsertGlobal(name, type);
+		if (!globalVar) {
+			YO_ASSERT(false);
+		} */
+		var->ext.index = (int)llvmGlobalVars.size();
+		llvmGlobalVars.push_back(globalVar);
+	}
+	YO_ASSERT(progModule->initFunc);
+	int saveFuncsNumber = (int)llvmFuncs.size();
+	YoProgCompiler::Function * progFunc = progModule->initFunc;
+	/* if (!compileDeclFunc(progModule, progFunc)) {
+		return false;
+	} */
 	for (i = (int)progModule->funcs.size() - 1; i >= 0; i--) {
-		YoProgCompiler::Function * progFunc = progModule->funcs[i];
+		progFunc = progModule->funcs[i];
+		/* if (progFunc == progModule->initFunc) {
+			continue;
+		} */
 		if (!compileDeclFunc(progModule, progFunc)) {
 			return false;
 		}
 	}
 	for (i = saveFuncsNumber; i < (int)llvmFuncs.size(); i++) {
 		Function * func = llvmFuncs[i];
-		YoProgCompiler::Function * progFunc = progFuncs[i];
+		progFunc = progFuncs[i];
+		YO_ASSERT(progFunc->ext.index == i);
 		if (!compileFuncBody(progModule, progFunc, func)) {
 			return false;
 		}
 	}
 	return true;
 }
+#endif
 
-llvm::AllocaInst * YoLLVMCompiler::allocaVar(FuncParams * func, YoProgCompiler::Scope * progScope, YoProgCompiler::StackValue * stackValue)
+llvm::AllocaInst * YoLLVMCompiler::allocaVar(FuncParams * func, YoProgCompiler::Scope * progScope, YoProgCompiler::Variable * var)
 {
-	return func->builder->CreateAlloca(getType(stackValue->type), NULL, stackValue->name);
+	Type * type = getType(var->type);
+	if (!type) {
+		YO_ASSERT(isError());
+		return NULL;
+	}
+	return func->builder->CreateAlloca(type, NULL, var->name);
 }
 
 llvm::Value * YoLLVMCompiler::compileOp(FuncParams * func, YoProgCompiler::Scope * progScope, YoProgCompiler::Operation * progOp)
 {
 	struct Lib {
-		static Value * emitStackValuePtr(FuncParams * func, YoProgCompiler::StackValue * progSV)
+		static Value * emitVarPtr(FuncParams * func, YoProgCompiler::Variable * progVar)
 		{
 			Value * ptr;
-			if (progSV->initStackValue) {
-				ptr = emitStackValuePtr(func, progSV->initStackValue);
+			if (progVar->isGlobal) {
+				YO_ASSERT(progVar->ext.index >= 0);
+				ptr = (*func->globalVars)[progVar->ext.index];
+			}
+			else if (progVar->initVar) {
+				ptr = emitVarPtr(func, progVar->initVar);
 				YO_ASSERT(ptr);
-				if (progSV->initStructElementIndex >= 0) {
-					ptr = func->builder->CreateStructGEP(ptr, progSV->initStructElementIndex);
+				if (progVar->initStructElementIndex >= 0) {
+					ptr = func->builder->CreateStructGEP(ptr, progVar->initStructElementIndex);
 				}
 			}
 			else{
-				ptr = (*func->stackValues)[progSV->ext.index];
+				YO_ASSERT(progVar->ext.index >= 0);
+				ptr = (*func->vars)[progVar->ext.index];
 			}
 			return ptr;
 		}
@@ -510,12 +607,12 @@ llvm::Value * YoLLVMCompiler::compileOp(FuncParams * func, YoProgCompiler::Scope
 			return NULL;
 		}
 		if (left->getType()->isFloatingPointTy()) {
-			return func->builder->CreateFCmp(getCmpOp(progOp->eop, true, true), left, right);
+			return func->builder->CreateFCmp(getCmpOp(progOp->eop, true, true, progOp->parserNode), left, right);
 		}
 		if (left->getType()->isIntegerTy()) {
-			return func->builder->CreateICmp(getCmpOp(progOp->eop, false, progOp->ops[0]->type->isSigned()), left, right);
+			return func->builder->CreateICmp(getCmpOp(progOp->eop, false, progOp->ops[0]->type->isSigned(), progOp->parserNode), left, right);
 		}
-		setError(ERROR_TYPE, "Number required");
+		setError(ERROR_TYPE, progOp->parserNode, "Number required");
 		return NULL;
 
 	case YoProgCompiler::OP_BIN_ADD:
@@ -526,6 +623,8 @@ llvm::Value * YoLLVMCompiler::compileOp(FuncParams * func, YoProgCompiler::Scope
 	case YoProgCompiler::OP_BIT_OR:
 	case YoProgCompiler::OP_BIT_AND:
 	case YoProgCompiler::OP_BIT_XOR:
+	case YoProgCompiler::OP_BIT_RSH:
+	case YoProgCompiler::OP_BIT_LSH:
 		YO_ASSERT(progOp->ops.size() == 2);
 		YO_ASSERT(progOp->type && progOp->ops[0]->type && progOp->ops[1]->type);
 		YO_ASSERT(progCompiler->baseType(progOp->ops[0]->type) == progCompiler->baseType(progOp->ops[1]->type));
@@ -535,10 +634,11 @@ llvm::Value * YoLLVMCompiler::compileOp(FuncParams * func, YoProgCompiler::Scope
 			YO_ASSERT(isError());
 			return NULL;
 		}
-		return func->builder->CreateBinOp(getBinOp(progOp->eop, progOp->ops[0]->type->isFloat(), progOp->ops[0]->type->isSigned()), left, right);
+		return func->builder->CreateBinOp(getBinOp(progOp->eop, progOp->ops[0]->type->isFloat(), progOp->ops[0]->type->isSigned(), progOp->parserNode), left, right);
 
-	case YoProgCompiler::OP_BIN_POWI:
-	case YoProgCompiler::OP_BIN_POWF: {
+	// case YoProgCompiler::OP_BIN_POWI:
+	// case YoProgCompiler::OP_BIN_POWF: {
+	case YoProgCompiler::OP_BIN_POW: {
 		YO_ASSERT(progOp->ops.size() == 2);
 		YO_ASSERT(progOp->type && progOp->ops[0]->type && progOp->ops[1]->type);
 		YO_ASSERT(progOp->ops[0]->type->isFloat() && progOp->ops[1]->type->isNumber());
@@ -548,31 +648,9 @@ llvm::Value * YoLLVMCompiler::compileOp(FuncParams * func, YoProgCompiler::Scope
 			YO_ASSERT(isError());
 			return NULL;
 		}
-		Intrinsic::ID id = progOp->eop == YoProgCompiler::OP_BIN_POWF ? Intrinsic::pow : Intrinsic::powi;
-		/* if (left->getType()->isIntegerTy()) {
-			id = Intrinsic::powi;
-		} */
-		/* if (left->getType()->isFloatingPointTy()) {
-			size = llvmEE->getDataLayout()->getTypeStoreSize(Type::getDoubleTy(*llvmContext));
-			if (!left->getType()->isDoubleTy()) {
-				Instruction::CastOps op = Instruction::FPExt;
-				if (size < llvmEE->getDataLayout()->getTypeStoreSize(left->getType())) {
-					op = Instruction::FPTrunc;
-				}
-				left = func->builder->CreateCast(op, left, Type::getDoubleTy(*llvmContext));
-			}
-			if (!right->getType()->isDoubleTy()) {
-				Instruction::CastOps op = Instruction::FPExt;
-				if (size < llvmEE->getDataLayout()->getTypeStoreSize(right->getType())) {
-					op = Instruction::FPTrunc;
-				}
-				right = func->builder->CreateCast(op, right, Type::getDoubleTy(*llvmContext));
-			}
-		} */
+		// Intrinsic::ID id = progOp->eop == YoProgCompiler::OP_BIN_POWF ? Intrinsic::pow : Intrinsic::powi;
+		Intrinsic::ID id = Intrinsic::pow;
 		argTypes.push_back(left->getType());
-		// argTypes.push_back(right->getType());
-		// Type * argTypes[] = { left->getType(), right->getType() };
-		// Type * argTypes[] = { left->getType() };
 		Value * args[] = { left, right };
 		Function * callFunc = Intrinsic::getDeclaration(llvmModule, id, argTypes);
 		return func->builder->CreateCall(callFunc, args);
@@ -593,7 +671,7 @@ llvm::Value * YoLLVMCompiler::compileOp(FuncParams * func, YoProgCompiler::Scope
 	case YoProgCompiler::OP_CALL_FUNC:
 		return compileCall(func, progScope, progOp);
 
-	case YoProgCompiler::OP_STACK_VALUE:
+	case YoProgCompiler::OP_VAR:
 		for (i = 0; i < (int)progOp->ops.size(); i++) {
 			value = compileOp(func, progScope, progOp->ops[i]);
 			if (!value) {
@@ -601,17 +679,7 @@ llvm::Value * YoLLVMCompiler::compileOp(FuncParams * func, YoProgCompiler::Scope
 				return NULL;
 			}
 		}
-		return Lib::emitStackValuePtr(func, progOp->stackValue);
-		/* if (progOp->stackValue->initStackValue) {
-			YoProgCompiler::StackValue * progSV = progOp->stackValue->initStackValue;
-			srcPtr = (*func->stackValues)[progOp->stackValue->initStackValue->ext.index];
-			YO_ASSERT(srcPtr);
-			if (progOp->stackValue->initStructElementIndex >= 0) {
-				return func->builder->CreateStructGEP(srcPtr, progOp->stackValue->initStructElementIndex);
-			}
-			return srcPtr;
-		}
-		return (*func->stackValues)[progOp->stackValue->ext.index]; */
+		return Lib::emitVarPtr(func, progOp->var);
 
 	case YoProgCompiler::OP_STRUCT_ELEMENT:
 		YO_ASSERT(progOp->ops.size() == 1);
@@ -646,11 +714,16 @@ llvm::Value * YoLLVMCompiler::compileOp(FuncParams * func, YoProgCompiler::Scope
 			YO_ASSERT(isError());
 			return NULL;
 		}
-		if (op->eop == YoProgCompiler::OP_STACK_VALUE) {
-			YO_ASSERT(!op->stackValue->initStackValue);
-			YO_ASSERT(srcPtr == (*func->stackValues)[op->stackValue->ext.index]);
-			if (op->stackValue->isArg && !op->stackValue->isChanged) {
-				return (*func->argValues)[op->stackValue->ext.index];
+		if (op->eop == YoProgCompiler::OP_VAR) {
+			YO_ASSERT(!op->var->initVar);
+			if (op->var->isGlobal) {
+				YO_ASSERT(srcPtr == (*func->globalVars)[op->var->ext.index]);
+			}
+			else{
+				YO_ASSERT(srcPtr == (*func->vars)[op->var->ext.index]);
+				if (op->var->isArg && !op->var->isChanged) {
+					return (*func->args)[op->var->ext.index];
+				}
 			}
 		}
 		return func->builder->CreateLoad(srcPtr);
@@ -687,11 +760,16 @@ llvm::Value * YoLLVMCompiler::compileOp(FuncParams * func, YoProgCompiler::Scope
 		noValue = func->builder->CreateStore(value, dstPtr);
 		return dstPtr;
 
-	case YoProgCompiler::OP_STACK_VALUE_MEMZERO:
-		if (progOp->stackValue->initStackValue) {
-			int i = 0;
+	case YoProgCompiler::OP_VAR_MEMZERO:
+		if (progOp->var->initVar) {
+			YO_ASSERT(false);
 		}
-		dstPtr = (*func->stackValues)[progOp->stackValue->ext.index];
+		if (progOp->var->isGlobal) {
+			dstPtr = (*func->globalVars)[progOp->var->ext.index];
+		}
+		else{
+			dstPtr = (*func->vars)[progOp->var->ext.index];
+		}
 		size = llvmEE->getDataLayout()->getTypeStoreSize(dstPtr->getType()->getContainedType(0));
 		return func->builder->CreateMemSet(dstPtr, func->builder->getInt8(0), size, 1);
 
@@ -709,7 +787,7 @@ llvm::Value * YoLLVMCompiler::compileOp(FuncParams * func, YoProgCompiler::Scope
 		if (!value) {
 			return NULL;
 		}
-		return func->builder->CreateCast(getCastOp(progOp->eop), value, getType(progOp->type));
+		return func->builder->CreateCast(getCastOp(progOp->eop, progOp->parserNode), value, getType(progOp->type));
 
 	case YoProgCompiler::OP_CAST_PTR:
 		YO_ASSERT(progOp->ops.size() == 1);
@@ -725,7 +803,7 @@ llvm::Value * YoLLVMCompiler::compileOp(FuncParams * func, YoProgCompiler::Scope
 		if (progCompiler->getIntBits(progOp->type, bits, isSigned)) {
 			return ConstantInt::get(Type::getIntNTy(*llvmContext, bits), size);
 		}
-		setError(ERROR_UNREACHABLE, "Error sizeof type: %d\n", (int)progOp->type->etype);
+		setError(ERROR_UNREACHABLE, progOp->parserNode, "Error sizeof type: %d", (int)progOp->type->etype);
 		return NULL;
 
 	case YoProgCompiler::OP_IF:
@@ -747,7 +825,7 @@ llvm::Value * YoLLVMCompiler::compileOp(FuncParams * func, YoProgCompiler::Scope
 		return NULL;
 
 	default:
-		setError(ERROR_UNREACHABLE, "Error prog opcode: %d\n", (int)progOp->eop);
+		setError(ERROR_UNREACHABLE, progOp->parserNode, "Error prog opcode: %d", (int)progOp->eop);
 	}
 	return NULL;
 }
@@ -870,19 +948,19 @@ llvm::Value * YoLLVMCompiler::compileBreakContinue(FuncParams * func, YoProgComp
 			return Constant::getNullValue(Type::getInt8Ty(*llvmContext));
 		}
 	}
-	setError(ERROR_BREAK_CONTINUE, "%s block is not found", progOp->eop == YoProgCompiler::OP_BREAK ? "'Break'" : "'Continue'");
+	setError(ERROR_BREAK_CONTINUE, progOp->parserNode, "%s block is not found", progOp->eop == YoProgCompiler::OP_BREAK ? "'Break'" : "'Continue'");
 	return NULL;
 }
 
-void YoLLVMCompiler::pushLabelBlock(std::vector<LabelBlock>& stack, const LabelBlock& b)
+void YoLLVMCompiler::pushLabelBlock(std::vector<LabelBlock>& stack, const LabelBlock& b, YoParserNode*)
 {
 	stack.push_back(b);
 }
 
-bool YoLLVMCompiler::popLabelBlock(std::vector<LabelBlock>& stack, const LabelBlock& b)
+bool YoLLVMCompiler::popLabelBlock(std::vector<LabelBlock>& stack, const LabelBlock& b, YoParserNode * node)
 {
 	if (stack.size() < 1 || stack.back().block != b.block || stack.back().label != b.label) {
-		setError(ERROR_UNREACHABLE, "Label blocks are broken");
+		setError(ERROR_UNREACHABLE, node, "Label blocks are broken");
 		return false;
 	}
 	stack.pop_back();
@@ -898,8 +976,8 @@ llvm::Value * YoLLVMCompiler::compileFor(FuncParams * func, YoProgCompiler::Scop
 	BasicBlock * stepBB = BasicBlock::Create(*llvmContext, "step");
 	BasicBlock * afterBB = BasicBlock::Create(*llvmContext, "after");
 
-	pushLabelBlock(breakLabels, afterBB);
-	pushLabelBlock(continueLabels, stepBB);
+	pushLabelBlock(breakLabels, afterBB, progOp->parserNode);
+	pushLabelBlock(continueLabels, stepBB, progOp->parserNode);
 
 	BasicBlock * curBB = func->builder->GetInsertBlock();
 	if (curBB->size() == 0 || !curBB->back().isTerminator()) {
@@ -950,7 +1028,7 @@ llvm::Value * YoLLVMCompiler::compileFor(FuncParams * func, YoProgCompiler::Scop
 	afterBB->insertInto(func->llvmFunc);
 	func->builder->SetInsertPoint(afterBB);
 	
-	if (!popLabelBlock(breakLabels, afterBB) || !popLabelBlock(continueLabels, stepBB)) {
+	if (!popLabelBlock(breakLabels, afterBB, progOp->parserNode) || !popLabelBlock(continueLabels, stepBB, progOp->parserNode)) {
 		YO_ASSERT(isError());
 		return NULL;
 	}
@@ -960,7 +1038,7 @@ llvm::Value * YoLLVMCompiler::compileFor(FuncParams * func, YoProgCompiler::Scop
 
 llvm::Value * YoLLVMCompiler::compileCall(FuncParams * func, YoProgCompiler::Scope * progScope, YoProgCompiler::Operation * progOp)
 {
-	YO_ASSERT((progOp->eop == YoProgCompiler::OP_CALL_CLOSURE || progOp->eop == YoProgCompiler::OP_CALL_FUNC) && progOp->ops.size() >= 2);
+	YO_ASSERT((progOp->eop == YoProgCompiler::OP_CALL_CLOSURE || progOp->eop == YoProgCompiler::OP_CALL_FUNC) && progOp->ops.size() >= 1);
 
 	// YoProgCompiler::FuncDataType * funcDataType = progOp->call.funcDataType;
 	// int numArgs = funcDataType->funcNativeType->argTypes.size();
@@ -979,13 +1057,13 @@ llvm::Value * YoLLVMCompiler::compileCall(FuncParams * func, YoProgCompiler::Sco
 	std::vector<Value*> args;
 	Value * funcAddr = compileOp(func, progScope, progOp->ops[startArg + 0]);
 	
-	if (extraArgs > 0) {
+	/* if (extraArgs > 0) {
 		YO_ASSERT(extraArgs == 1);
 		Value * closureAddr = compileOp(func, progScope, progOp->ops[startArg + 1]);
 		args.push_back(closureAddr);
-	}
+	} */
 
-	for (i = startArg + 1 + extraArgs; i < (int)progOp->ops.size(); i++) {
+	for (i = startArg + 1; i < (int)progOp->ops.size(); i++) {
 		Value * arg = compileOp(func, progScope, progOp->ops[i]);
 		if (!arg) {
 			YO_ASSERT(isError());
@@ -1033,22 +1111,24 @@ llvm::CallingConv::ID YoLLVMCompiler::getCallingConv(EYoCallingConv conv)
 
 llvm::Function * YoLLVMCompiler::compileDeclFunc(YoProgCompiler::Module * progModule, YoProgCompiler::Function * progFunc)
 {
-	switch (progFunc->parserNode->data.func.op) {
-	case T_FUNC:
-		break;
-	case T_EXTERN_FUNC:
-		break;
-	case T_GET:
-		break;
-	case T_SET:
-		break;
-	case T_SUB_FUNC:
-		break;
-	case T_LAMBDA:
-		break;
-	default:
-		setError(ERROR_UNREACHABLE, "Error func op: %d\n", (int)progFunc->parserNode->data.func.op);
-		return NULL;
+	if (progFunc->parserNode->type != YO_NODE_MODULE) {
+		switch (progFunc->parserNode->data.func.op) {
+		case T_FUNC:
+			break;
+		case T_EXTERN_FUNC:
+			break;
+		case T_GET:
+			break;
+		case T_SET:
+			break;
+		case T_SUB_FUNC:
+			break;
+		case T_LAMBDA:
+			break;
+		default:
+			setError(ERROR_UNREACHABLE, progFunc->parserNode, "Error func op: %d", (int)progFunc->parserNode->data.func.op);
+			return NULL;
+		}
 	}
 	FunctionType * ft = getFuncNativeType(progFunc->funcNativeType);
 	YO_ASSERT(ft);
@@ -1069,7 +1149,6 @@ llvm::Function * YoLLVMCompiler::compileDeclFunc(YoProgCompiler::Module * progMo
 	for (; i < (int)progFunc->argNames.size(); ++ait, ++i) {
 		ait->setName("#" + progFunc->argNames[i]);
 	}
-
 	return func;
 }
 
@@ -1104,45 +1183,65 @@ bool YoLLVMCompiler::compileFuncBody(YoProgCompiler::Module * progModule, YoProg
 	IRBuilder<> builder(*llvmContext);
 	builder.SetInsertPoint(bb);
 
-	std::vector<AllocaInst*> stackValues;
-	std::vector<llvm::Value*> argValues;
+	// std::vector<Value*> globalVars;
+	std::vector<AllocaInst*> vars;
+	std::vector<Value*> args;
 	
 	FuncParams funcParams;
 	funcParams.progModule = progModule;
 	funcParams.builder = &builder;
-	funcParams.stackValues = &stackValues;
-	funcParams.argValues = &argValues;
+	funcParams.globalVars = &llvmGlobalVars;
+	funcParams.vars = &vars;
+	funcParams.args = &args;
 	funcParams.llvmFunc = func;
 
 	int i;
 	Function::arg_iterator funcAI = func->arg_begin();
-	for (i = 0; i < (int)progFunc->stackValues.size(); i++) {
-		YoProgCompiler::StackValue * stackValue = progFunc->stackValues[i];
+	for (i = 0; i < (int)progFunc->vars.size(); i++) {
+		YoProgCompiler::Variable * var = progFunc->vars[i];
+		if (var->isGlobal) {
+			Type * type = getType(var->type);
+			if (!type) {
+				YO_ASSERT(isError());
+				return false;
+			}
+			std::string name = system->getUniqName((var->name + "-%d").c_str());
+			GlobalVariable * globalVar = new GlobalVariable(*llvmModule, type, false, 
+				GlobalVariable::LinkageTypes::InternalLinkage, Constant::getNullValue(type), name);
+			/* Value * globalVar = llvmModule->getOrInsertGlobal(name, type);
+			if (!globalVar) {
+				YO_ASSERT(false);
+			} */
+			var->ext.index = (int)llvmGlobalVars.size();
+			llvmGlobalVars.push_back(globalVar);
+			continue;
+		}
 		AllocaInst * allocaInst;
-		if (0 && stackValue->initStackValue) {
-			YO_ASSERT(stackValue->initStackValue->ext.index >= 0);
-			stackValue->ext.index = stackValue->initStackValue->ext.index;
+		if (0 && var->initVar) {
+			YO_ASSERT(var->initVar->ext.index >= 0);
+			var->ext.index = var->initVar->ext.index;
 			allocaInst = NULL;
 		}
 		else{
-			allocaInst = allocaVar(&funcParams, progFunc, stackValue);
+			allocaInst = allocaVar(&funcParams, progFunc, var);
 			if (!allocaInst) {
+				YO_ASSERT(isError());
 				return false;
 			}
-			stackValue->ext.index = i;
-			stackValues.push_back(allocaInst);
+			var->ext.index = (int)vars.size();
+			vars.push_back(allocaInst);
 		}
 
 		if (i < (int)progFunc->funcNativeType->args.size()) {
-			YO_ASSERT(stackValue->isArg && allocaInst);
-			argValues.push_back(funcAI);
-			if (stackValue->isChanged) {
+			YO_ASSERT(var->isArg && allocaInst);
+			args.push_back(funcAI);
+			if (var->isChanged) {
 				builder.CreateStore(funcAI, allocaInst);
 			}
 			++funcAI;
 		}
 		else{
-			YO_ASSERT(!stackValue->isArg);
+			YO_ASSERT(!var->isArg);
 		}
 	}
 
@@ -1161,6 +1260,6 @@ bool YoLLVMCompiler::compileFuncBody(YoProgCompiler::Module * progModule, YoProg
 		return true;
 	}
 	// setError(ERROR_VERIFY_FUNC, "Error verify function %s", func->getName().str().c_str());
-	setError(ERROR_VERIFY_FUNC, OS.str());
+	setError(ERROR_UNREACHABLE, progFunc->parserNode, OS.str());
 	return false;
 }

@@ -1,0 +1,28 @@
+mod test
+
+/* func test(i int) int {
+	return i
+} */
+
+let globalValue = 100
+
+func test(i, j mut int) int {
+	i++
+	return i + j + globalValue
+}
+
+func val(a int) int {
+	return a
+}
+
+func main() float64 {
+	let i mut = val(10) >> 1, b = val(7), j mut int = val(3) << 2
+	i += j * b
+
+	// let f mut = test as func(mut int, mut int)
+	// let i mut = f(10, 5)
+	// i = i + 100
+	i -= test(80, 7)
+	
+	return i
+}

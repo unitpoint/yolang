@@ -34,10 +34,12 @@ func getVal() int {
 }
 */
 
+let
+
 func main() double {
 	let f float32 = 1
 	// let i &int = *(&f as *int)
-	let i = f as &int
+	let i &int = f as &int
 	printf("f: %f, i: %x", f, i)
 	return i
 	

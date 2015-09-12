@@ -1,0 +1,14 @@
+module test
+
+extern func printf(fmt *byte, ...)
+
+func main() {
+	let i = 1
+	let mut j = 2
+	let k &int = i
+	let mut a &int = i
+	
+	// a = 10
+	printf("a: %d\n", a)
+
+}

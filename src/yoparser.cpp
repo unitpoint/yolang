@@ -41,6 +41,16 @@ const char * yoTokenName(int token)
 	case T_AND: return "&";
 	case T_MOD: return "%";
 	case T_DIV: return "/";
+	case T_CONCAT_ASSIGN: return "..=";
+	case T_XOR_ASSIGN: return "^=";
+	case T_OR_ASSIGN: return "|=";
+	case T_MINUS_ASSIGN: return "-=";
+	case T_PLUS_ASSIGN: return "+=";
+	case T_RSH_ASSIGN: return ">>=";
+	case T_LSH_ASSIGN: return "<<=";
+	case T_AND_ASSIGN: return "&=";
+	case T_MOD_ASSIGN: return "%=";
+	case T_DIV_ASSIGN: return "/=";
 	case T_INC: return "++";
 	case T_DEC: return "--";
 	case T_INDIRECT:
@@ -73,6 +83,7 @@ const char * yoTokenName(int token)
 	case T_BOOL: return "bool";
 	case T_VOID: return "void";
 	case T_UNKNOWN_YET: return "?";
+	case T_MUTABLE: return "mut";
 	}
 	return "<UNKNOWN TOKEN>";
 }
@@ -587,13 +598,15 @@ void yoLexTrackRule(YYSTYPE * elem, void * parm, YYLTYPE * loc)
 // =====================================================================
 // =====================================================================
 
-YoParser::YoParser(const char * input)
+YoParser::YoParser(YoSystem * s, const char * input)
 {
+	system = s;
 	init(input);
 }
 
-YoParser::YoParser(const char * input, int len)
+YoParser::YoParser(YoSystem * s, const char * input, int len)
 {
+	system = s;
 	init(input, len);
 }
 
@@ -664,10 +677,10 @@ void YoParser::dumpErrorLine(const YoParserToken& token)
 {
 	const char * errorLineStart = lines[token.line-1];
 	int pos = token.str - errorLineStart;
-	dumpErrorLine(token.line, pos);
+	dumpErrorLine(token.line, pos, token.len);
 }
 
-void YoParser::dumpErrorLine(int line, int linePos)
+void YoParser::dumpErrorLine(int line, int linePos, int tokenLen)
 {
 	int errorLine = line;
 	const char * errorLineStart = lines[line-1];
@@ -712,7 +725,11 @@ void YoParser::dumpErrorLine(int line, int linePos)
 	for (i = 0; i < pos; i++) {
 		printf(start[i] == '\t' ? "\t" : " ");
 	}
-	printf("^\n");
+	printf("^");
+	for (i = 1; i < tokenLen; i++) {
+		printf("~");
+	}
+	printf("\n");
 }
 
 void YoParser::dumpError()
@@ -720,8 +737,8 @@ void YoParser::dumpError()
 	if (!isError()) {
 		return;
 	}
-	printf("Parser msg: %s\n", errorMsg.c_str());
-	dumpErrorLine(errorLine, errorLinePos);
+	printf("[err-parser-%d]: %s\n", (int)error, errorMsg.c_str());
+	dumpErrorLine(errorLine, errorLinePos, errorLoc.token.len);
 }
 
 bool YoParser::run()
@@ -1129,14 +1146,14 @@ static void yoParserDumpNode(YoParserNode * node, int depth, EYoParserNodeScopeT
 		break;
 
 	case YO_NODE_DECL_VAR:
-		printf("DECL VAR %s", node->data.declVar.isMutable ? "MUT " : "");
+		printf("DECL VAR "); // node->data.declVar.isMutable ? "MUT " : "");
 		yoParserDumpNode(node->data.declVar.name, depth, YO_NODE_SCOPE_OP);
 		printf(" ");
 		yoParserDumpNode(node->data.declVar.type, depth, YO_NODE_SCOPE_OP);
 		break;
 
 	case YO_NODE_DECL_ARG:
-		printf("DECL ARG %s", node->data.declVar.isMutable ? "MUT " : "");
+		printf("DECL ARG "); // node->data.declVar.isMutable ? "MUT " : "");
 		yoParserDumpNode(node->data.declVar.name, depth, YO_NODE_SCOPE_OP);
 		printf(" ");
 		yoParserDumpNode(node->data.declVar.type, depth, YO_NODE_SCOPE_OP);
@@ -1331,7 +1348,10 @@ void yoParserList(YYSTYPE * r, YYSTYPE * a, YYSTYPE * b, void * parm, YYLTYPE * 
 void yoParserAssign(YYSTYPE * r, YYSTYPE * a, YYSTYPE * b, int op, void * parm, YYLTYPE * loc)
 {
 	YoParser * parser = dynamic_cast<YoParser*>((YoParser*)parm);
-	YO_ASSERT(op == T_ASSIGN || op == T_INIT_ASSIGN || op == T_PROP_ASSIGN);
+	YO_ASSERT(op == T_ASSIGN || op == T_INIT_ASSIGN || op == T_PROP_ASSIGN
+		|| op == T_PLUS_ASSIGN || op == T_MINUS_ASSIGN || op == T_MUL_ASSIGN || op == T_DIV_ASSIGN
+		|| op == T_MOD_ASSIGN || op == T_OR_ASSIGN || op == T_AND_ASSIGN || op == T_XOR_ASSIGN  || op == T_POW_ASSIGN
+		|| op == T_RSH_ASSIGN || op == T_LSH_ASSIGN || op == T_CONCAT_ASSIGN);
 	YO_ASSERT(a->node);
 	YO_ASSERT(b->node);
 	YoParserNode * node = NULL;
@@ -1561,26 +1581,26 @@ void yoParserNewObjProps(YYSTYPE * r, YYSTYPE * name, YYSTYPE * prop_list, void 
 	r->node = node;
 }
 
-void yoParserDeclVar(YYSTYPE * r, bool isMutable, YYSTYPE * name, YYSTYPE * type, void * parm, YYLTYPE * loc)
+void yoParserDeclVar(YYSTYPE * r, YYSTYPE * name, YYSTYPE * type, void * parm, YYLTYPE * loc)
 {
 	YoParser * parser = dynamic_cast<YoParser*>((YoParser*)parm);
 	YO_ASSERT(!type || !type->node || (type->node && type->node->isType()));
 	YO_ASSERT(name->node && name->node->type == YO_NODE_NAME);
 	YoParserNode * node = parser->newNode(YO_NODE_DECL_VAR, loc);
-	node->data.declVar.isMutable = isMutable;
+	// node->data.declVar.isMutable = isMutable;
 	node->data.declVar.type = type ? type->node : NULL;
 	node->data.declVar.name = name->node;
 	// node->token = name->node->token;
 	r->node = node;
 }
 
-void yoParserDeclArg(YYSTYPE * r, bool isMutable, YYSTYPE * name, YYSTYPE * type, void * parm, YYLTYPE * loc)
+void yoParserDeclArg(YYSTYPE * r, YYSTYPE * name, YYSTYPE * type, void * parm, YYLTYPE * loc)
 {
 	YoParser * parser = dynamic_cast<YoParser*>((YoParser*)parm);
 	YO_ASSERT(type->node && type->node->isType());
 	YO_ASSERT(name->node && name->node->type == YO_NODE_NAME);
 	YoParserNode * node = parser->newNode(YO_NODE_DECL_ARG, loc);
-	node->data.declVar.isMutable = isMutable;
+	// node->data.declVar.isMutable = isMutable;
 	node->data.declVar.type = type->node;
 	node->data.declVar.name = name->node;
 	// node->token = name->node->token;

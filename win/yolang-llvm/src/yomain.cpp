@@ -41,30 +41,33 @@ void main()
 #endif
 
 	// const char * filename = "../../yo/test_refs.yo";
-	// const char * filename = "fannkuch.yo";
-	const char * filename = "test-llvm.yo";
+	const char * filename = "../../yo/test_funcs.yo";
+	// const char * filename = "../../yo/test_fannkuch.yo";
+	// const char * filename = "test-llvm.yo";
 	// const char * filename = "test-01.yo";
-	FILE * f = fopen(filename, "rb");
+
+	YoSystem system;
+
+	YoSystem::FileHandle * f = system.openFile(filename, "rb");
 	if (!f) {
 		printf("file %s is not found\n", filename);
 		exit(1);
 	}
-	fseek(f, 0, SEEK_END);
-	int size = ftell(f);
-	fseek(f, 0, SEEK_SET);
+	int size = system.seekFile(f, 0, SEEK_END);
+	system.seekFile(f, 0, SEEK_SET);
 	char * buf = new char[size + 1 + YO_LEX_MAXFILL];
 	if (!buf) {
 		printf("error malloc %d bytes\n", size);
-		fclose(f);
+		system.closeFile(f);
 		exit(1);
 	}
-	fread(buf, size, 1, f);
+	system.readFile(buf, size, f);
 	memset(buf + size, 0, 1 + YO_LEX_MAXFILL);
 	// buf[size] = '\0';
-	fclose(f);
+	system.closeFile(f);
 
 	for(;;){
-		YoParser parser(buf, size);
+		YoParser parser(&system, buf, size);
 		parser.run();
 		if (parser.isError()) {
 			parser.dumpError();
@@ -74,9 +77,12 @@ void main()
 
 		printf("\n======================\n\n");
 
-		YoProgCompiler progCompiler(&parser);
+		// int testGlobalValue = 0;
+
+		YoProgCompiler progCompiler(&system, &parser);
 		progCompiler.addSymbol("snprintf", &YoExtern::snprintf);
 		progCompiler.addSymbol("printf", &YoExtern::printf);
+		// progCompiler.addSymbol("test.globalValue-2", &testGlobalValue);
 
 		progCompiler.run();
 		if (progCompiler.isError()) {
@@ -85,12 +91,18 @@ void main()
 		}
 		progCompiler.dump();
 
-		YoLLVMCompiler::EBuildType buildType = YoLLVMCompiler::BUILD_DEBUG;
-		YoLLVMCompiler llvmCompiler(&progCompiler, "Yolang jit compiler", buildType);
+		YoLLVMCompiler::EBuildType buildType = YoLLVMCompiler::BUILD_RELEASE;
+		YoLLVMCompiler llvmCompiler(&system, &progCompiler, "Yolang jit compiler", buildType);
 		if (llvmCompiler.run()) {
 			llvmCompiler.llvmModule->dump();
 			llvmCompiler.llvmEE->finalizeObject();
-			llvm::Function * llvmFunc = llvmCompiler.llvmModule->getFunction("main");
+			llvm::Function * llvmFunc = llvmCompiler.llvmModule->getFunction("@initProgram");
+			if (llvmFunc) {
+				void * mainFunc = llvmCompiler.llvmEE->getPointerToFunction(llvmFunc);
+				void(__cdecl*initProgramFunc)() = (void(__cdecl*)())mainFunc;
+				initProgramFunc();
+			}
+			llvmFunc = llvmCompiler.llvmModule->getFunction("main");
 			if (llvmFunc) {
 #if 0
 				void * mainFunc = llvmCompiler.llvmEE->getPointerToFunction(llvmFunc);
@@ -98,7 +110,7 @@ void main()
 				func(NULL);
 #else
 				void * mainFunc = llvmCompiler.llvmEE->getPointerToFunction(llvmFunc);
-				double(*func)(void*) = (double(*)(void*))mainFunc;
+				double(__cdecl*func)(void*) = (double(__cdecl*)(void*))mainFunc;
 				double r = func(NULL);
 				printf("\nResult: %lf\n", r);
 #endif
@@ -109,7 +121,8 @@ void main()
 		}
 		if (llvmCompiler.isError()) {
 			llvmCompiler.llvmModule->dump();
-			printf("\n======================\n%s\n", llvmCompiler.errorMsg.c_str());
+			llvmCompiler.dumpError();
+			// printf("\n======================\n%s\n", llvmCompiler.errorMsg.c_str());
 			break;
 		}
 

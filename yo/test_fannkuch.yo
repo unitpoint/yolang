@@ -1,4 +1,4 @@
-module test
+mod test
 
 /*
 type Array class<T> {
@@ -34,8 +34,9 @@ type Fres class {
 }
 
 func fannkuch(n int) Fres {
-  let mut sign = 1, mut maxflips = 0, mut sum = 0
-  // r1 = 1; r2 = 2; return 0;
+  let sign mut = 1, maxflips mut = 0, sum mut = 0
+  // let sign, maxflips, sum mut = 1, 0, 0
+  // mut sign = 1, maxflips = 0, sum = 0
   
   type buffer mut [100]int
   let p buffer, q buffer, s buffer
@@ -43,23 +44,23 @@ func fannkuch(n int) Fres {
 	printf("error num: %d\n", n)
 	return Fres{-1, -1}
   }
-  for let mut i = 1; i <= n; i++ { p[i] = q[i] = s[i] = i; }
+  for let i mut = 1; i <= n; i++ { p[i] = q[i] = s[i] = i; }
   loop {
     // Copy and flip.
-    let mut q1 = p[1]				// Cache 1st element.
+    let q1 mut = p[1]				// Cache 1st element.
     if q1 != 1 {
-      for let mut i = 2; i <= n; i++ { q[i] = p[i]; }		// Work on a copy.
-      let mut flips = 1
+      for let i mut = 2; i <= n; i++ { q[i] = p[i]; }		// Work on a copy.
+      let flips mut = 1
       loop {
 		let qq = q[q1]
 		if qq == 1 {				// ... until 1st element is 1.
-		  sum = sum + sign * flips
+		  sum += sign * flips
 		  maxflips = flips if flips > maxflips // New maximum?
 		  break
 		}
 		q[q1] = q1
 		if q1 >= 4 {
-		  let mut i = 2, mut j = q1 - 1
+		  let i mut = 2, j mut = q1 - 1
 		  loop { let tmp = q[i]; q[i] = q[j]; q[j] = tmp; break if ++i >= --j; }
 		}
 		q1 = qq; flips++
@@ -70,7 +71,7 @@ func fannkuch(n int) Fres {
       let tmp = p[2]; p[2] = p[1]; p[1] = tmp; sign = -1	// Rotate 1<-2.
     } else {
       let tmp = p[2]; p[2] = p[3]; p[3] = tmp; sign = 1	// Rotate 1<-2 and 1<-2<-3.
-      for let mut i = 3; ; i++ {
+      for let i mut = 3; ; i++ {
 		// print "mark 4"
 		let sx = s[i]
 		if sx != 1 { s[i] = sx-1; break; }
@@ -78,7 +79,7 @@ func fannkuch(n int) Fres {
 		s[i] = i
 		// Rotate 1<-...<-i+1.
 		let t = p[1]
-		for let mut j = 1; j <= i; j++ { p[j] = p[j+1]; }
+		for let j mut = 1; j <= i; j++ { p[j] = p[j+1]; }
 		p[i+1] = t
       }
     }

@@ -8,6 +8,7 @@
 
 struct YoParserNode;
 class YoParser;
+class YoSystem;
 class YoProgCompiler
 {
 public:
@@ -16,6 +17,8 @@ public:
 	{
 		ERROR_NOTHING,
 		ERROR_UNREACHABLE,
+		ERROR_FUNC_DUPLICATED,
+		ERROR_FUNC_AMBIGUOUS,
 		ERROR_VAR_DUPLICATED,
 		ERROR_VAR_NOT_USED,
 		ERROR_VAR_NOT_INITIALIZED,
@@ -186,11 +189,11 @@ public:
 	enum EValue
 	{
 		VALUE_NOTHING,
-		VALUE_STACKVALUE,
+		VALUE_VAR,
 		// VALUE_SCOPE,
 	};
 
-	class StackValue
+	class Variable
 	{
 	public:
 
@@ -198,6 +201,7 @@ public:
 		YoParserNode * parserNode;
 
 		Type * type;
+		bool isGlobal;
 		bool isArg;
 		// bool isMutable;
 		bool isInitialized;
@@ -206,15 +210,15 @@ public:
 		bool isTemp;
 		// bool isClosure;
 
-		StackValue * initStackValue;
+		Variable * initVar;
 		int initStructElementIndex;
 
 		struct {
 			int index;
 		} ext;
 
-		StackValue(Type * type, const std::string& name, YoParserNode*);
-		~StackValue();
+		Variable(Type * type, const std::string& name, YoParserNode*);
+		~Variable();
 	};
 
 	enum EScope
@@ -236,7 +240,7 @@ public:
 		EScope escope;
 
 		std::vector<Scope*> scopes;
-		std::vector<StackValue*> stackValues;
+		std::vector<Variable*> vars;
 		std::map<std::string, Type*> types;
 		std::vector<Operation*> ops;
 
@@ -265,6 +269,7 @@ public:
 	public:
 
 		std::vector<Function*> funcs;
+		Function * initFunc;
 
 		Module(const std::string& name, YoParserNode*);
 		~Module();
@@ -273,10 +278,12 @@ public:
 	enum EName
 	{
 		NAME_UNKNOWN,
-		NAME_STACKVALUE,
-		NAME_CLOSUREVALUE,
 		NAME_TYPE,
+		NAME_FUNC_VAR,
+		NAME_CLOSURE_VAR,
+		NAME_MODULE_VAR,
 		NAME_MODULE_FUNCTION,
+		NAME_MODULE_FUNCTION_LIST,
 	};
 
 	struct NameInfo
@@ -287,13 +294,17 @@ public:
 		union {
 			struct {
 				int count;
-				StackValue * value;
+				Variable * value;
 			} closureValue;
 
-			StackValue * stackValue;
+			Variable * var;
 			Type * type;
-			Function * func;
+			// Function * func;
 		};
+
+		std::vector<Function*> funcs;
+
+		NameInfo(){ ename = NAME_UNKNOWN; }
 	};
 
 	enum EOperation
@@ -329,7 +340,7 @@ public:
 		// OP_PTR,
 		// OP_INDIRECT,
 		
-		OP_STACK_VALUE,
+		OP_VAR,
 		OP_STRUCT_ELEMENT,
 		OP_ELEMENT,
 
@@ -339,6 +350,8 @@ public:
 		OP_STORE_REF,
 
 		OP_FUNC,
+		OP_FUNC_AMBIGUOUS,
+
 		OP_RETURN,
 		OP_CALL_CLOSURE,
 		OP_CALL_FUNC,
@@ -348,12 +361,15 @@ public:
 		OP_BIN_MUL,
 		OP_BIN_DIV,
 		OP_BIN_MOD,
-		OP_BIN_POWF,
-		OP_BIN_POWI,
+		OP_BIN_POW,
+		// OP_BIN_POWF,
+		// OP_BIN_POWI,
 
 		OP_BIT_OR,
 		OP_BIT_AND,
 		OP_BIT_XOR,
+		OP_BIT_RSH,
+		OP_BIT_LSH,
 
 		OP_CMP_EQ,
 		OP_CMP_NE,
@@ -365,7 +381,7 @@ public:
 		OP_LOGICAL_OR,
 		OP_LOGICAL_AND,
 
-		OP_STACK_VALUE_MEMZERO,
+		OP_VAR_MEMZERO,
 		OP_ZERO_VALUE,
 	};
 
@@ -378,7 +394,7 @@ public:
 
 		EOperation eop;
 		std::vector<Operation*> ops;
-		
+		std::vector<Function*> ambiguousFuncs;
 		// NameInfo nameInfo;
 
 		union {
@@ -401,18 +417,14 @@ public:
 				int index;
 			} typeStructElement;
 
-			/* struct {
-				StackValue * stackValue;
-				int index;
-			} stackValueElement; */
 			int structElementIndex;
 
 			struct {
 				int upCount;
-				StackValue * value;
+				Variable * value;
 			} upvalue;
 
-			StackValue * stackValue;
+			Variable * var;
 
 			struct {
 				FuncDataType * funcDataType;
@@ -441,10 +453,11 @@ public:
 		};
 
 		Operation(EOperation, YoParserNode*);
-		// Operation(StackValue * stackValue, YoParserNode*);
+		// Operation(Variable * var, YoParserNode*);
 		virtual ~Operation();
 	};
 
+	YoSystem * system;
 	YoParser * parser;
 
 	std::vector<Module*> modules;
@@ -453,13 +466,13 @@ public:
 	std::string errorMsg;
 	YoParserNode * errorNode;
 
-	YoProgCompiler(YoParser*);
+	YoProgCompiler(YoSystem*, YoParser*);
 	~YoProgCompiler();
 
 	void reset();
 
 	void resetError();
-	void setError(Error);
+	void setError(Error, YoParserNode*);
 	void setError(Error, YoParserNode*, const char * msg, ...);
 	void setError(Error, YoParserNode*, const std::string& msg);
 	bool isError() const;
@@ -533,7 +546,9 @@ protected:
 
 	Operation * newOperation(EOperation, Type * type, YoParserNode*);
 	Operation * newOperation(EOperation, Type * type, Operation * sub, YoParserNode*);
-	Operation * newStackValueOp(StackValue * value, YoParserNode*);
+	Operation * newStoreOp(Operation * valueOp, Operation * refOp, YoParserNode*);
+	Operation * newStoreOp(Operation * valueOp, Variable * var, YoParserNode*);
+	Operation * newVarOp(Variable * value, YoParserNode*);
 	Operation * newStructElementOp(Operation * refOp, int index, YoParserNode*);
 	Operation * newFuncDataOp(Scope*, Function * func, YoParserNode*);
 
@@ -577,7 +592,7 @@ protected:
 	Type * getIntPtrType(bool isSigned);
 	Type * getFloatType(int bits);
 
-	Type * getParserStdType(int stdType);
+	Type * getParserStdType(int stdType, YoParserNode*);
 	Type * getParserType(Scope*, YoParserNode*);
 	Type * getScopeType(Scope*, YoParserNode*);
 	FuncNativeType * getFuncNativeType(std::vector<std::string>& argNames, Scope*, YoParserNode*);
@@ -614,15 +629,17 @@ protected:
 	std::string getFuncNativeTypeName(FuncNativeType*);
 	void updateFuncNativeType(FuncNativeType*);
 
-	StackValue * allocTempValue(Scope*, Type * type, const std::string& name, YoParserNode*);
+	Variable * allocTempValue(Scope*, Type * type, YoParserNode*);
+	Variable * allocTempValue(Scope*, Type * type, const std::string& name, YoParserNode*);
 
 	bool addStmt(Scope*, Operation*);
 
+	bool compileInitProgram();
 	bool compileModule(YoParserNode*);
 	Function * compileFunc(Scope*, YoParserNode*);
 	bool compileFuncBody(Function*, YoParserNode * funcNode);
 	bool compileScopeBody(Scope*, YoParserNode*);
-	StackValue * compileDeclVar(Scope*, YoParserNode*);
+	Variable * compileDeclVar(Scope*, YoParserNode*);
 	Type * compileDeclType(Scope*, YoParserNode*);
 	// bool exprToStmt(Scope*, Expression*);
 	bool compileStmtBinOp(Scope*, YoParserNode*);
@@ -665,9 +682,11 @@ protected:
 	Operation * convertToType(Scope*, Operation*, Type*, EConvertType, YoParserNode*);
 	Operation * convertArgToType(Scope*, Operation*, Type*, bool isExtern, YoParserNode*);
 	
-	Operation * loadValueOf(Operation*, YoParserNode*);
-	Operation * loadStackValueOf(StackValue*, YoParserNode*);
+	Operation * valueOf(Variable*, YoParserNode*);
+	// Operation * loadValueOf(Operation*, YoParserNode*);
 	Operation * valueOf(Operation*, YoParserNode*);
+	Operation * refValueOf(Variable*, YoParserNode*);
+	Operation * refValueOf(Operation*, YoParserNode*);
 	Operation * addrOf(Operation*, YoParserNode*);
 	Operation * indirectOf(Operation*, YoParserNode*);
 

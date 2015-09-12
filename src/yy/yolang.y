@@ -48,8 +48,8 @@ void yoParserTypeSlice(YYSTYPE * r, YYSTYPE * a, void * parm, YYLTYPE * loc);
 void yoParserTypeArr(YYSTYPE * r, YYSTYPE * size, YYSTYPE * a, void * parm, YYLTYPE * loc);
 void yoParserTypeFunc(YYSTYPE * r, int op, YYSTYPE * self, YYSTYPE * args, YYSTYPE * type, void * parm, YYLTYPE * loc);
 void yoParserDeclType(YYSTYPE * r, YYSTYPE * a, YYSTYPE * b, void*, YYLTYPE * loc);
-void yoParserDeclVar(YYSTYPE * r, bool isMutable, YYSTYPE * a, YYSTYPE * b, void*, YYLTYPE * loc);
-void yoParserDeclArg(YYSTYPE * r, bool isMutable, YYSTYPE * a, YYSTYPE * b, void*, YYLTYPE * loc);
+void yoParserDeclVar(YYSTYPE * r, YYSTYPE * a, YYSTYPE * b, void*, YYLTYPE * loc);
+void yoParserDeclArg(YYSTYPE * r, YYSTYPE * a, YYSTYPE * b, void*, YYLTYPE * loc);
 void yoParserList(YYSTYPE * r, YYSTYPE * a, YYSTYPE * b, void*, YYLTYPE * loc);
 void yoParserDotName(YYSTYPE * r, YYSTYPE * a, YYSTYPE * b, void*, YYLTYPE * loc);
 void yoParserNewArr(YYSTYPE * r, void * parm, YYLTYPE * loc);
@@ -89,7 +89,7 @@ void yyerror(const char* s);
 %pure_parser
 %locations
 %error-verbose
-%expect 3
+%expect 7
 
 %token T_MODULE T_IMPORT
 %token T_DOTDOTDOT
@@ -273,20 +273,16 @@ type_or_empty:
 		type
 	|	empty
 	
-mut_or_empty:
-		T_MUTABLE	{ $$.op = T_MUTABLE; }
-	|	empty
-	
 decl_var_list:
 		decl_var_elem
 	|	decl_var_list ',' decl_var_elem		{ yoParserList(&$$, &$1, &$3, parm, &yyloc); }
 	
 decl_var_elem:
-		mut_or_empty T_NAME type_or_empty	{ yoParserDeclVar(&$$, $1.op == T_MUTABLE, &$2, &$3, parm, &yyloc); }
-	|	mut_or_empty T_NAME type_or_empty T_ASSIGN expr {
-				yoParserDeclVar(&$1, $1.op == T_MUTABLE, &$2, &$3, parm, &yyloc); 
-				yoParserAssign(&$2, &$2, &$5, T_INIT_ASSIGN, parm, &yyloc); 
-				yoParserList(&$$, &$1, &$2, parm, &yyloc);
+		T_NAME type_or_empty	{ yoParserDeclVar(&$$, &$1, &$2, parm, &yyloc); }
+	|	T_NAME type_or_empty T_ASSIGN expr {
+				yoParserDeclVar(&$3, &$1, &$2, parm, &yyloc); 
+				yoParserAssign(&$1, &$1, &$4, T_INIT_ASSIGN, parm, &yyloc); 
+				yoParserList(&$$, &$3, &$1, parm, &yyloc);
 			}
 	
 decl_var:
@@ -311,10 +307,17 @@ import_body_elem:
 import_body:
 		import_body_elem
 	|	import_body import_body_elem { yoParserList(&$$, &$1, &$2, parm, &yyloc); }
-				
+
+top_decl_var:
+		decl_var
+		
+top_decl_type:
+		decl_type
+		
 top_stmt_no_emptyline:
 		import end_stmt
-	|	decl_type end_stmt
+	|	top_decl_type end_stmt
+	|	top_decl_var end_stmt
 	|	top_decl_func end_stmt
 	|	error { yoParserError(&$$, yymsgbuf, parm, &yyloc); yyclearin; YYABORT; }
 
@@ -411,11 +414,7 @@ var_assign_list:
 	|	var_assign_list ',' var_assign_elem		{ yoParserList(&$$, &$1, &$3, parm, &yyloc); }
 	
 var_assign_elem:
-		empty T_NAME type_or_empty T_ASSIGN expr {
-				yoParserDeclVar(&$1, $1.op == T_MUTABLE, &$2, &$3, parm, &yyloc); 
-				yoParserAssign(&$2, &$2, &$5, T_INIT_ASSIGN, parm, &yyloc); 
-				yoParserList(&$$, &$1, &$2, parm, &yyloc);
-			}
+		decl_var_elem
 		
 if_header:
 		expr
@@ -551,7 +550,7 @@ top_decl_func:
 
 decl_func:
 		T_FUNC T_NAME '(' decl_arg_list_or_empty ')' type_or_empty '{' func_body '}' { 
-			yoParserDeclVar(&$3, false, &$2, NULL, parm, &yyloc); 
+			yoParserDeclVar(&$3, &$2, NULL, parm, &yyloc); 
 			yoParserDeclFunc(&$1, T_SUB_FUNC, NULL, &$2, &$4, &$6, &$8, parm, &yyloc);
 			yoParserAssign(&$2, &$2, &$1, T_INIT_ASSIGN, parm, &yyloc); 
 			yoParserList(&$$, &$3, &$2, parm, &yyloc);			
@@ -577,7 +576,7 @@ type_self:
 	|	T_AND T_MUTABLE type_name		{ yoParserTypeMutable(&$$, &$3, parm, &yyloc); yoParserTypeRef(&$$, &$$, parm, &yyloc); }
 			
 decl_self:
-		'(' T_NAME type_self ')'		{ yoParserDeclArg(&$$, false, &$2, &$3, parm, &yyloc); }
+		'(' T_NAME type_self ')'		{ yoParserDeclArg(&$$, &$2, &$3, parm, &yyloc); }
 	|	empty
 			
 decl_arg_list_or_empty:
@@ -589,8 +588,7 @@ decl_arg_list:
 	|	decl_arg_list ',' decl_arg	{ yoParserList(&$$, &$1, &$3, parm, &yyloc); }
 
 decl_arg:
-		empty name_list type		{ yoParserDeclArg(&$$, false, &$2, &$3, parm, &yyloc); }
-	|	T_MUTABLE name_list type	{ yoParserDeclArg(&$$, true, &$2, &$3, parm, &yyloc); }
+		name_list type	{ yoParserDeclArg(&$$, &$1, &$2, parm, &yyloc); }
 
 func_body:
 		stmt_list
@@ -671,6 +669,7 @@ type_std_name:
 	|	T_BOOL		{ yoParserTypeStdName(&$$, T_BOOL, parm, &yyloc); }
 	|	T_VOID		{ yoParserTypeStdName(&$$, T_VOID, parm, &yyloc); }
 	|	'?'			{ yoParserTypeStdName(&$$, T_UNKNOWN_YET, parm, &yyloc); }
+	|	T_MUTABLE	{ yoParserTypeStdName(&$$, T_MUTABLE, parm, &yyloc); }
 
 expr_const_scalar:
 		T_TRUE		{ yoParserConst(&$$, T_TRUE, parm, &yyloc); }
@@ -743,6 +742,8 @@ expr_base:
 	|	expr T_MOD expr		{ yoParserBinOp(&$$, &$1, &$3, T_MOD, parm, &yyloc); }
 	|	expr T_POW expr		{ yoParserBinOp(&$$, &$1, &$3, T_POW, parm, &yyloc); }
 	|	expr T_CONCAT expr	{ yoParserBinOp(&$$, &$1, &$3, T_CONCAT, parm, &yyloc); }
+	|	expr T_LSH expr  	{ yoParserBinOp(&$$, &$1, &$3, T_LSH, parm, &yyloc); }
+	|	expr T_RSH expr  	{ yoParserBinOp(&$$, &$1, &$3, T_RSH, parm, &yyloc); }
 	|	expr T_OR expr  	{ yoParserBinOp(&$$, &$1, &$3, T_OR, parm, &yyloc); }
 	|	expr T_OROR expr  	{ yoParserBinOp(&$$, &$1, &$3, T_OROR, parm, &yyloc); }
 	|	expr T_AND expr  	{ yoParserBinOp(&$$, &$1, &$3, T_AND, parm, &yyloc); }
@@ -785,7 +786,19 @@ assign:
 		expr_for_assign T_ASSIGN expr	{ yoParserAssign(&$$, &$1, &$3, T_ASSIGN, parm, &yyloc); }
 */
 assign:
-		expr T_ASSIGN expr	{ yoParserAssign(&$$, &$1, &$3, T_ASSIGN, parm, &yyloc); }
+		expr T_ASSIGN expr			{ yoParserAssign(&$$, &$1, &$3, T_ASSIGN, parm, &yyloc); }
+	|	expr T_PLUS_ASSIGN expr		{ yoParserAssign(&$$, &$1, &$3, T_PLUS_ASSIGN, parm, &yyloc); }
+	|	expr T_MINUS_ASSIGN expr	{ yoParserAssign(&$$, &$1, &$3, T_MINUS_ASSIGN, parm, &yyloc); }
+	|	expr T_MUL_ASSIGN expr		{ yoParserAssign(&$$, &$1, &$3, T_MUL_ASSIGN, parm, &yyloc); }
+	|	expr T_DIV_ASSIGN expr		{ yoParserAssign(&$$, &$1, &$3, T_DIV_ASSIGN, parm, &yyloc); }
+	|	expr T_MOD_ASSIGN expr		{ yoParserAssign(&$$, &$1, &$3, T_MOD_ASSIGN, parm, &yyloc); }
+	|	expr T_OR_ASSIGN expr		{ yoParserAssign(&$$, &$1, &$3, T_OR_ASSIGN, parm, &yyloc); }
+	|	expr T_AND_ASSIGN expr		{ yoParserAssign(&$$, &$1, &$3, T_AND_ASSIGN, parm, &yyloc); }
+	|	expr T_XOR_ASSIGN expr		{ yoParserAssign(&$$, &$1, &$3, T_XOR_ASSIGN, parm, &yyloc); }
+	|	expr T_RSH_ASSIGN expr		{ yoParserAssign(&$$, &$1, &$3, T_RSH_ASSIGN, parm, &yyloc); }
+	|	expr T_LSH_ASSIGN expr		{ yoParserAssign(&$$, &$1, &$3, T_LSH_ASSIGN, parm, &yyloc); }
+	|	expr T_POW_ASSIGN expr		{ yoParserAssign(&$$, &$1, &$3, T_POW_ASSIGN, parm, &yyloc); }
+	|	expr T_CONCAT_ASSIGN expr	{ yoParserAssign(&$$, &$1, &$3, T_CONCAT_ASSIGN, parm, &yyloc); }
 		
 call_args:
 		expr_list

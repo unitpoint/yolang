@@ -95,6 +95,7 @@
     <ClCompile Include="..\..\src\yolang-y.cpp" />
     <ClCompile Include="..\..\src\yoparser.cpp" />
     <ClCompile Include="..\..\src\yoprogcompiler.cpp" />
+    <ClCompile Include="..\..\src\yosystem.cpp" />
     <ClCompile Include="src\yomain.cpp" />
   </ItemGroup>
   <ItemGroup>
@@ -105,6 +106,7 @@
     <ClInclude Include="..\..\src\yolang.h" />
     <ClInclude Include="..\..\src\yoparser.h" />
     <ClInclude Include="..\..\src\yoprogcompiler.h" />
+    <ClInclude Include="..\..\src\yosystem.h" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\3rdparty\llvm\mybuilddir\lib\Analysis\IPA\LLVMipa.vcxproj">

@@ -8,6 +8,7 @@
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/CallingConv.h"
 
+class YoSystem;
 class YoProgCompiler;
 class YoLLVMCompiler
 {
@@ -18,8 +19,8 @@ public:
 		ERROR_NOTHING,
 		ERROR_TYPE,
 		ERROR_BREAK_CONTINUE,
-		ERROR_VERIFY_FUNC,
-		ERROR_VERIFY_MODULE,
+		// ERROR_VERIFY_FUNC,
+		// ERROR_VERIFY_MODULE,
 		ERROR_UNREACHABLE,
 		ERROR_IN_PROGCOMPILER,
 	};
@@ -30,6 +31,7 @@ public:
 		BUILD_RELEASE,
 	};
 
+	YoSystem * system;
 	YoProgCompiler * progCompiler;
 	EBuildType buildType;
 	
@@ -40,22 +42,24 @@ public:
 
 	Error error;
 	std::string errorMsg;
+	YoParserNode * errorNode;
 
-	YoLLVMCompiler(YoProgCompiler * progCompiler, const std::string& llvmModuleName, EBuildType);
+	YoLLVMCompiler(YoSystem*, YoProgCompiler * progCompiler, const std::string& llvmModuleName, EBuildType);
 	~YoLLVMCompiler();
 
 	virtual void initFPM();
 
 	void reset();
+
+	void dumpError();
 	void resetError();
-	void setError(Error);
-	void setError(Error, const char * msg, ...);
-	void setError(Error, const std::string& msg);
+	void setError(Error, YoParserNode*);
+	void setError(Error, YoParserNode*, const char * msg, ...);
+	void setError(Error, YoParserNode*, const std::string& msg);
 	bool isError() const;
 
 	bool run();
 
-	// void setExternFuncs(const std::map<std::string, void*>&);
 
 protected:
 
@@ -72,13 +76,15 @@ protected:
 	{
 		YoProgCompiler::Module * progModule;
 		// ModuleParams * module;
-		std::vector<llvm::AllocaInst*> * stackValues;
-		std::vector<llvm::Value*> * argValues;
+		std::vector<llvm::Value*> * globalVars;
+		std::vector<llvm::AllocaInst*> * vars;
+		std::vector<llvm::Value*> * args;
 		llvm::IRBuilder<> * builder;
 		llvm::Function * llvmFunc;
 	};
 	
 	llvm::LLVMContext * llvmContext;
+	std::vector<llvm::Value*> llvmGlobalVars;
 	std::vector<llvm::Function*> llvmFuncs;
 	std::vector<YoProgCompiler::Function*> progFuncs;
 
@@ -97,8 +103,8 @@ protected:
 	std::vector<LabelBlock> breakLabels;
 	std::vector<LabelBlock> continueLabels;
 
-	void pushLabelBlock(std::vector<LabelBlock>&, const LabelBlock&);
-	bool popLabelBlock(std::vector<LabelBlock>&, const LabelBlock&);
+	void pushLabelBlock(std::vector<LabelBlock>&, const LabelBlock&, YoParserNode*);
+	bool popLabelBlock(std::vector<LabelBlock>&, const LabelBlock&, YoParserNode*);
 
 	llvm::CallingConv::ID getCallingConv(EYoCallingConv);
 
@@ -108,15 +114,15 @@ protected:
 	llvm::FunctionType * getFuncNativeType(YoProgCompiler::Type*);
 	llvm::StructType * getFuncDataType(YoProgCompiler::Type*);
 	llvm::PointerType * getPtrType(YoProgCompiler::Type*);
-	llvm::Instruction::CastOps getCastOp(YoProgCompiler::EOperation progOp);
-	llvm::Instruction::BinaryOps getBinOp(YoProgCompiler::EOperation progOp, bool isFloat, bool isSigned);
-	llvm::CmpInst::Predicate getCmpOp(YoProgCompiler::EOperation progOp, bool isFloat, bool isSigned);
+	llvm::Instruction::CastOps getCastOp(YoProgCompiler::EOperation progOp, YoParserNode*);
+	llvm::Instruction::BinaryOps getBinOp(YoProgCompiler::EOperation progOp, bool isFloat, bool isSigned, YoParserNode*);
+	llvm::CmpInst::Predicate getCmpOp(YoProgCompiler::EOperation progOp, bool isFloat, bool isSigned, YoParserNode*);
 
-	bool compileModule(YoProgCompiler::Module*);
+	// bool compileModule(YoProgCompiler::Module*);
 	llvm::Function * compileDeclFunc(YoProgCompiler::Module*, YoProgCompiler::Function*);
 	bool compileFuncBody(YoProgCompiler::Module*, YoProgCompiler::Function*, llvm::Function*);
 	bool compileScopeBody(FuncParams*, YoProgCompiler::Scope*);
-	llvm::AllocaInst * allocaVar(FuncParams*, YoProgCompiler::Scope*, YoProgCompiler::StackValue*);
+	llvm::AllocaInst * allocaVar(FuncParams*, YoProgCompiler::Scope*, YoProgCompiler::Variable*);
 	llvm::Value * compileOp(FuncParams*, YoProgCompiler::Scope*, YoProgCompiler::Operation*);
 	llvm::Value * compileIf(FuncParams*, YoProgCompiler::Scope*, YoProgCompiler::Operation*);
 	llvm::Value * compileFor(FuncParams*, YoProgCompiler::Scope*, YoProgCompiler::Operation*);
