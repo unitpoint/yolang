@@ -1255,6 +1255,7 @@ YoParserNode * YoParser::newNode(EYoParserNodeType type, YYLTYPE * loc)
 YoParserNode * YoParser::newNode(EYoParserNodeType type, const YoParserToken& token)
 {
 	YoParserNode * node = new YoParserNode();
+	node->parser = this;
 	node->type = type;
 	node->token = token;
 	node->prev = NULL;

@@ -16,6 +16,7 @@ public:
 	enum Error
 	{
 		ERROR_NOTHING,
+		ERROR_FILE_NOT_OPENED,
 		ERROR_UNREACHABLE,
 		ERROR_FUNC_DUPLICATED,
 		ERROR_FUNC_AMBIGUOUS,
@@ -36,6 +37,7 @@ public:
 		ERROR_RETURN_REQUIRED,
 		ERROR_ESCAPE_CHAR,
 		ERROR_LINK_EXTERN_FUNC,
+		ERROR_IN_PARSER,
 	};
 
 	enum EType
@@ -458,7 +460,6 @@ public:
 	};
 
 	YoSystem * system;
-	YoParser * parser;
 
 	std::vector<Module*> modules;
 
@@ -466,7 +467,7 @@ public:
 	std::string errorMsg;
 	YoParserNode * errorNode;
 
-	YoProgCompiler(YoSystem*, YoParser*);
+	YoProgCompiler(YoSystem*);
 	~YoProgCompiler();
 
 	void reset();
@@ -477,10 +478,12 @@ public:
 	void setError(Error, YoParserNode*, const std::string& msg);
 	bool isError() const;
 
-	bool run();
+	bool run(YoParser*);
+	bool run(const char * filename);
 
 	void addSymbol(const std::string& name, void*);
 
+	void dumpParsers();
 	void dump();
 	void dumpError();
 
@@ -532,6 +535,14 @@ protected:
 		CastOp() : eop(OP_NOP), castType(CAST_BY_HAND) {}
 		CastOp(EType _extType, EOperation _eop, ECastType _castType = CAST_BY_HAND) : extType(_extType), eop(_eop), castType(_castType) {}
 	};
+
+	struct ParserData
+	{
+		char * buf;
+		YoParser * parser;
+	};
+
+	std::vector<ParserData> parsers;
 
 	std::map<int, Type*> binOpNumCastTypes;
 	std::map<int, CastOp> castOps;

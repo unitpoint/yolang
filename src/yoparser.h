@@ -208,7 +208,7 @@ private:
 
 struct YoParserNode
 {
-	// YoParserNode * parserNext;
+	YoParser * parser;
 
 	EYoParserNodeType type;
 	YoParserToken token;

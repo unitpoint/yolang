@@ -69,7 +69,7 @@ void YoLLVMCompiler::dumpError()
 	if (isError()) {
 		printf("[err-llvmcompiler-%d] %s\n", (int)error, errorMsg.c_str());
 		if (errorNode) {
-			progCompiler->parser->dumpErrorLine(errorNode->token);
+			errorNode->parser->dumpErrorLine(errorNode->token);
 		}
 	}
 	else{

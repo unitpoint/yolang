@@ -285,10 +285,10 @@ YoProgCompiler::Operation::~Operation()
 // ==============================================================
 // ==============================================================
 
-YoProgCompiler::YoProgCompiler(YoSystem * s, YoParser * p)
+YoProgCompiler::YoProgCompiler(YoSystem * s)
 {
 	system = s;
-	parser = p;
+	// parser = NULL;
 	error = ERROR_NOTHING;
 	errorNode = NULL;
 }
@@ -310,6 +310,11 @@ void YoProgCompiler::reset()
 	std::map<std::string, Type*>::iterator it = globalTypes.begin();
 	for (; it != globalTypes.end(); ++it) {
 		delete it->second;
+	}
+	for (i = 0; i < parsers.size(); i++) {
+		const ParserData& parserData = parsers[i];
+		delete[] parserData.buf;
+		delete parserData.parser;
 	}
 	resetError();
 }
@@ -356,14 +361,59 @@ bool YoProgCompiler::isError() const
 	return error != ERROR_NOTHING;
 }
 
-bool YoProgCompiler::run()
+bool YoProgCompiler::run(const char * filename)
 {
-#if 0
-	if (parser->error) {
-		set parser error;
+	YoSystem::FileHandle * f = system->openFile(filename, "rb");
+	if (!f) {
+		setError(ERROR_FILE_NOT_OPENED, NULL, "File %s is not opened", filename);
 		return false;
 	}
-#endif
+	int size = system->seekFile(f, 0, SEEK_END);
+	system->seekFile(f, 0, SEEK_SET);
+	char * buf = new char[size + 1 + YO_LEX_MAXFILL];
+	if (!buf) {
+		system->closeFile(f);
+		setError(ERROR_UNREACHABLE, NULL, "Error malloc %d bytes reading file %s", size, filename);
+		return false;
+	}
+	system->readFile(buf, size, f);
+	memset(buf + size, 0, 1 + YO_LEX_MAXFILL);
+	system->closeFile(f);
+
+	YoParser * parser = new YoParser(system, buf, size);
+	YO_ASSERT(parser);
+	ParserData parserData;
+	parserData.buf = buf;
+	parserData.parser = parser;
+	parsers.push_back(parserData);
+	if (!parser->run()) {
+		setError(ERROR_IN_PARSER, NULL, "Error parsing file %s", filename);
+		return false;
+	}
+	return run(parser);
+}
+
+bool YoProgCompiler::run(YoParser * parser)
+{
+	/* struct SaveParser {
+		YoProgCompiler * progCompiler;
+		YoParser * saveParser;
+		SaveParser(YoProgCompiler * c, YoParser * p)
+		{
+			progCompiler = c;
+			saveParser = progCompiler->parser;
+			progCompiler->parser = p;
+		}
+		~SaveParser()
+		{
+			progCompiler->parser = saveParser;
+		}
+	} saveParser(this, p); */
+
+	if (parser->isError()) {
+		setError(ERROR_UNREACHABLE, NULL, "Error in parser");
+		return false;
+	}
 	if (parser->module) {
 		if (compileModule(parser->module)) {
 			return compileInitProgram();
@@ -371,6 +421,13 @@ bool YoProgCompiler::run()
 	}
 	setError(ERROR_UNREACHABLE, NULL, "No module");
 	return false;
+}
+
+void YoProgCompiler::dumpParsers()
+{
+	for (int i = 0; i < (int)parsers.size(); i++) {
+		parsers[i].parser->dump();
+	}
 }
 
 void YoProgCompiler::dump()
@@ -1034,14 +1091,23 @@ void YoProgCompiler::dump()
 	for (i = 0; i < (int)modules.size(); i++) {
 		lib.dumpModule(modules[i]);
 	}
+	if (modules.size() == 0) {
+		printf("No module\n");
+	}
 }
 
 void YoProgCompiler::dumpError()
 {
 	if (isError()) {
-		printf("[err-compiler-%d] %s\n", (int)error, errorMsg.c_str());
-		if (errorNode) {
-			parser->dumpErrorLine(errorNode->token);
+		if (error == ERROR_IN_PARSER) {
+			YO_ASSERT(parsers.size());
+			parsers.back().parser->dumpError();
+		}
+		else{
+			printf("[err-compiler-%d] %s\n", (int)error, errorMsg.c_str());
+			if (errorNode) {
+				errorNode->parser->dumpErrorLine(errorNode->token);
+			}
 		}
 	}
 	else{

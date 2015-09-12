@@ -47,88 +47,54 @@ void main()
 	// const char * filename = "test-01.yo";
 
 	YoSystem system;
+	YoProgCompiler progCompiler(&system);
+		
+	progCompiler.addSymbol("snprintf", &YoExtern::snprintf);
+	progCompiler.addSymbol("printf", &YoExtern::printf);
 
-	YoSystem::FileHandle * f = system.openFile(filename, "rb");
-	if (!f) {
-		printf("file %s is not found\n", filename);
-		exit(1);
+	if (!progCompiler.run(filename)) {
+		progCompiler.dumpError();
+		return;
 	}
-	int size = system.seekFile(f, 0, SEEK_END);
-	system.seekFile(f, 0, SEEK_SET);
-	char * buf = new char[size + 1 + YO_LEX_MAXFILL];
-	if (!buf) {
-		printf("error malloc %d bytes\n", size);
-		system.closeFile(f);
-		exit(1);
-	}
-	system.readFile(buf, size, f);
-	memset(buf + size, 0, 1 + YO_LEX_MAXFILL);
-	// buf[size] = '\0';
-	system.closeFile(f);
+	printf("=== PARSERS\n");
+	progCompiler.dumpParsers();
+	
+	printf("=== PROG COMPILER\n");
+	progCompiler.dump();
 
-	for(;;){
-		YoParser parser(&system, buf, size);
-		parser.run();
-		if (parser.isError()) {
-			parser.dumpError();
-			break;
+	YoLLVMCompiler::EBuildType buildType = YoLLVMCompiler::BUILD_RELEASE;
+	YoLLVMCompiler llvmCompiler(&system, &progCompiler, "Yolang jit compiler", buildType);
+	if (llvmCompiler.run()) {
+		printf("=== LLVM COMPILER\n");
+		llvmCompiler.llvmModule->dump();
+		llvmCompiler.llvmEE->finalizeObject();
+		llvm::Function * llvmFunc = llvmCompiler.llvmModule->getFunction("@initProgram");
+		if (llvmFunc) {
+			void * mainFunc = llvmCompiler.llvmEE->getPointerToFunction(llvmFunc);
+			void(__cdecl*initProgramFunc)() = (void(__cdecl*)())mainFunc;
+			initProgramFunc();
 		}
-		parser.dump();
-
-		printf("\n======================\n\n");
-
-		// int testGlobalValue = 0;
-
-		YoProgCompiler progCompiler(&system, &parser);
-		progCompiler.addSymbol("snprintf", &YoExtern::snprintf);
-		progCompiler.addSymbol("printf", &YoExtern::printf);
-		// progCompiler.addSymbol("test.globalValue-2", &testGlobalValue);
-
-		progCompiler.run();
-		if (progCompiler.isError()) {
-			progCompiler.dumpError();
-			break;
-		}
-		progCompiler.dump();
-
-		YoLLVMCompiler::EBuildType buildType = YoLLVMCompiler::BUILD_RELEASE;
-		YoLLVMCompiler llvmCompiler(&system, &progCompiler, "Yolang jit compiler", buildType);
-		if (llvmCompiler.run()) {
-			llvmCompiler.llvmModule->dump();
-			llvmCompiler.llvmEE->finalizeObject();
-			llvm::Function * llvmFunc = llvmCompiler.llvmModule->getFunction("@initProgram");
-			if (llvmFunc) {
-				void * mainFunc = llvmCompiler.llvmEE->getPointerToFunction(llvmFunc);
-				void(__cdecl*initProgramFunc)() = (void(__cdecl*)())mainFunc;
-				initProgramFunc();
-			}
-			llvmFunc = llvmCompiler.llvmModule->getFunction("main");
-			if (llvmFunc) {
+		llvmFunc = llvmCompiler.llvmModule->getFunction("main");
+		if (llvmFunc) {
 #if 0
-				void * mainFunc = llvmCompiler.llvmEE->getPointerToFunction(llvmFunc);
-				void(*func)(void*) = (void(*)(void*))mainFunc;
-				func(NULL);
+			void * mainFunc = llvmCompiler.llvmEE->getPointerToFunction(llvmFunc);
+			void(*func)(void*) = (void(*)(void*))mainFunc;
+			func(NULL);
 #else
-				void * mainFunc = llvmCompiler.llvmEE->getPointerToFunction(llvmFunc);
-				double(__cdecl*func)(void*) = (double(__cdecl*)(void*))mainFunc;
-				double r = func(NULL);
-				printf("\nResult: %lf\n", r);
+			void * mainFunc = llvmCompiler.llvmEE->getPointerToFunction(llvmFunc);
+			double(__cdecl*func)(void*) = (double(__cdecl*)(void*))mainFunc;
+			double r = func(NULL);
+			printf("\nResult: %lf\n", r);
 #endif
-			}
-			else{
-				printf("Main function is not found\n");
-			}
 		}
-		if (llvmCompiler.isError()) {
-			llvmCompiler.llvmModule->dump();
-			llvmCompiler.dumpError();
-			// printf("\n======================\n%s\n", llvmCompiler.errorMsg.c_str());
-			break;
+		else{
+			printf("Main function is not found\n");
 		}
-
-		break;
 	}
-
-	delete[] buf;
+	else {
+		printf("=== LLVM COMPILER\n");
+		llvmCompiler.llvmModule->dump();
+		llvmCompiler.dumpError();
+	}
 }
 
