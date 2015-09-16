@@ -49,6 +49,7 @@ const char * yoTokenName(int token)
 	case T_RSH_ASSIGN: return ">>=";
 	case T_LSH_ASSIGN: return "<<=";
 	case T_AND_ASSIGN: return "&=";
+	case T_MUL_ASSIGN: return "*=";
 	case T_MOD_ASSIGN: return "%=";
 	case T_DIV_ASSIGN: return "/=";
 	case T_INC: return "++";
@@ -1197,8 +1198,8 @@ static void yoParserDumpNode(YoParserNode * node, int depth, EYoParserNodeScopeT
 		break;
 
 	case YO_NODE_TYPE_CONTRACT:
-	case YO_NODE_TYPE_CLASS:
-		printf("%s", node->type == YO_NODE_TYPE_CLASS ? "CLASS" : "CONTRACT");
+	case YO_NODE_TYPE_STRUCT:
+		printf("%s", node->type == YO_NODE_TYPE_STRUCT ? "STRUCT" : "CONTRACT");
 		if (node->data.typeClass.gen) {
 			printf(" <");
 			yoParserDumpNode(node->data.typeClass.gen, depth, YO_NODE_SCOPE_OP);
@@ -1521,7 +1522,7 @@ bool YoParserNode::isType() const
 	return type == YO_NODE_TYPE_NAME || type == YO_NODE_TYPE_STD_NAME || type == YO_NODE_TYPE_MUTABLE
 		|| type == YO_NODE_TYPE_CONST || type == YO_NODE_TYPE_CHAN || type == YO_NODE_TYPE_REF
 		|| type == YO_NODE_TYPE_PTR || type == YO_NODE_TYPE_SLICE || type == YO_NODE_TYPE_ARR
-		|| type == YO_NODE_TYPE_CLASS || type == YO_NODE_TYPE_CONTRACT || type == YO_NODE_TYPE_FUNC
+		|| type == YO_NODE_TYPE_STRUCT || type == YO_NODE_TYPE_CONTRACT || type == YO_NODE_TYPE_FUNC
 		|| type == YO_NODE_NAME;
 }
 
@@ -1564,7 +1565,7 @@ void yoParserNewObj(YYSTYPE * r, YYSTYPE * name, void * parm, YYLTYPE * loc)
 void yoParserNewObjExps(YYSTYPE * r, YYSTYPE * name, YYSTYPE * expr_list, void * parm, YYLTYPE * loc)
 {
 	YoParser * parser = dynamic_cast<YoParser*>((YoParser*)parm);
-	YO_ASSERT(name->node && (name->node->type == YO_NODE_NAME || name->node->type == YO_NODE_DOTNAME));
+	YO_ASSERT(name->node && (name->node->type == YO_NODE_NAME || name->node->type == YO_NODE_DOTNAME || name->node->type == YO_NODE_TYPE_ARR));
 	YO_ASSERT(expr_list->node);
 	YoParserNode * node = parser->newNode(YO_NODE_NEW_OBJ_EXPS, loc);
 	node->data.obj.name = name->node;
@@ -1908,11 +1909,11 @@ void yoParserContract(YYSTYPE * r, YYSTYPE * gen, YYSTYPE * extends, YYSTYPE * b
 	r->node = node;
 }
 
-void yoParserClass(YYSTYPE * r, YYSTYPE * gen, YYSTYPE * extends, YYSTYPE * body, void * parm, YYLTYPE * loc)
+void yoParserStruct(YYSTYPE * r, YYSTYPE * gen, YYSTYPE * extends, YYSTYPE * body, void * parm, YYLTYPE * loc)
 {
 	YoParser * parser = dynamic_cast<YoParser*>((YoParser*)parm);
 	YO_ASSERT(gen && extends && body);
-	YoParserNode * node = parser->newNode(YO_NODE_TYPE_CLASS, loc);
+	YoParserNode * node = parser->newNode(YO_NODE_TYPE_STRUCT, loc);
 	node->data.typeClass.gen = gen->node;
 	node->data.typeClass.extends = extends->node;
 	node->data.typeClass.body = body->node;

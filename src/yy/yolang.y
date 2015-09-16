@@ -62,7 +62,7 @@ void yoParserDeclFunc(YYSTYPE * r, int op, YYSTYPE * self, YYSTYPE * name, YYSTY
 void yoParserDeclFunc(YYSTYPE * r, int op, YYSTYPE * self, YYSTYPE * name, YYSTYPE * args, YYSTYPE * type, YYSTYPE * body, void*, YYLTYPE * loc);
 void yoParserContractFunc(YYSTYPE * r, int op, YYSTYPE * name, YYSTYPE * args, YYSTYPE * type, void*, YYLTYPE * loc);
 void yoParserContract(YYSTYPE * r, YYSTYPE * gen, YYSTYPE * e, YYSTYPE * a, void * parm, YYLTYPE * loc);
-void yoParserClass(YYSTYPE * r, YYSTYPE * gen, YYSTYPE * e, YYSTYPE * a, void * parm, YYLTYPE * loc);
+void yoParserStruct(YYSTYPE * r, YYSTYPE * gen, YYSTYPE * e, YYSTYPE * a, void * parm, YYLTYPE * loc);
 void yoParserDebug(YYSTYPE*, void*, YYLTYPE * loc);
 void yoParserError(YYSTYPE*, const char*, void*, YYLTYPE * loc);
 void yoParseEmpty(YYSTYPE*, void*, YYLTYPE * loc);
@@ -218,7 +218,7 @@ void yyerror(const char* s);
 %token	T_INDEX		"[] (T_INDEX)"
 
 /* manual override of shift/reduce conflicts */
-%left 	T_PTR
+%left 	T_PTR T_REF
 %left 	T_ARR
 %left	T_DOTNAME
 %left		NotParen
@@ -491,10 +491,10 @@ extends_list:
 		extends_elem
 	|	extends_list ',' extends_elem	{ yoParserList(&$$, &$1, &$3, parm, &yyloc); }
 	
-type_class:
-		T_CLASS template extends '{' class_body '}'	{ yoParserClass(&$$, &$2, &$3, &$5, parm, &yyloc); }
+type_struct:
+		T_STRUCT template extends '{' struct_body '}'	{ yoParserStruct(&$$, &$2, &$3, &$5, parm, &yyloc); }
 
-class_body_stmt:
+struct_body_stmt:
 		decl_arg end_stmt
 	|	newline
 	
@@ -512,12 +512,12 @@ decl_class_func:
 			{ yoParserDeclFunc(&$$, T_CLASS_SETTER, &$2, &$3, &$5, NULL, &$8, parm, &yyloc); }
 */
 
-class_body_stmt_list:
-		class_body_stmt
-	|	class_body_stmt_list class_body_stmt	{ yoParserList(&$$, &$1, &$2, parm, &yyloc); }
+struct_body_stmt_list:
+		struct_body_stmt
+	|	struct_body_stmt_list struct_body_stmt	{ yoParserList(&$$, &$1, &$2, parm, &yyloc); }
 	
-class_body:
-		class_body_stmt_list
+struct_body:
+		struct_body_stmt_list
 	|	empty
 	
 type_base:	
@@ -534,7 +534,7 @@ type_base:
 type_ext:
 		type_base
 	|	type_contract
-	|	type_class
+	|	type_struct
 			
 top_decl_func:
 		T_EXTERN T_FUNC dotname '(' decl_arg_list ',' T_DOTDOTDOT ')' type_or_empty
@@ -691,6 +691,7 @@ expr_arr:
 expr_obj:
 		dotname '{' '}'			{ yoParserNewObj(&$$, &$1, parm, &yyloc); }
 	|	dotname '{' expr_list '}'	{ yoParserNewObjExps(&$$, &$1, &$3, parm, &yyloc); }
+/*	|	type_arr '{' expr_list '}'	{ yoParserNewObjExps(&$$, &$1, &$3, parm, &yyloc); } */
 	|	dotname '{' prop_assing_list '}'	{ yoParserNewObjProps(&$$, &$1, &$3, parm, &yyloc); }
 
 prop_assing_list:

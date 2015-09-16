@@ -4,6 +4,12 @@ mod test
 	return i
 } */
 
+extern func malloc(size uint32) *void
+extern func free(p *void)
+extern func snprintf(buf *mut byte, size uint32, fmt *byte, ...) int32 // [cdecl]
+extern func printf(fmt *byte, ...)
+
+/*
 let globalValue = 100
 
 func test(i, j mut int) int {
@@ -14,15 +20,72 @@ func test(i, j mut int) int {
 func val(a int) int {
 	return a
 }
+*/
+
+type complex struct {
+	i float64
+	r float64
+}
+
+/*
+func (this &mut complex) initComplex(a float64) &complex {
+	this.i *= a
+	this.r *= a
+	return this
+}
+
+let prev = alter func initComplex &mut complex(a float64) &complex {
+}
+
+let a complex
+let func = a.initComplex as func &mut complex (float64) &complex
+
+// let saveInitComplex = complex.initComplex as func(this &mut complex, a float64) &complex
+func mut complex.initComplex(a float64) &complex {
+	// saveInitComplex(c, a)
+	this.i *= a
+	this.r *= a
+	return this
+}
+
+let saveInitComplex = alter func mut complex.initComplex(a float64) &complex {
+}
+*/
+
+func initComplex(c &mut complex) &complex {
+	c.i *= 10
+	c.r *= 10
+	return c
+}
+
+func complex(i, r float64) complex {
+	return initComplex(complex{i, r})
+}
+
+func touchArr(a &[2][3]int) int {
+	return a[1][2]
+}
 
 func main() float64 {
-	let i mut = val(10) >> 1, b = val(7), j mut int = val(3) << 2
-	i += j * b
+	// let arr = [4]int{1,1024,3}
+	let arr = {{1,2,3}, {10,30,1024}}
+	let i = touchArr(arr)
+	// let i int = arr[1][2]
+	let size uint = i
+	let p = malloc(size) as *mut byte
+	let s = p + 2
+	let c = complex(10, 20)
+	snprintf(s, size-2, "complex %f, %f", c.i, c.r)
+	printf("%s\n", s)
+	free(p)
+
+	// let i mut = val(10) >> 1, b = val(7), j mut int = val(3) << 2
+	// i += j * b
 
 	// let f mut = test as func(mut int, mut int)
 	// let i mut = f(10, 5)
 	// i = i + 100
-	i -= test(80, 7)
+	// i -= test(80, 7)
 	
-	return i
+	return 123
 }

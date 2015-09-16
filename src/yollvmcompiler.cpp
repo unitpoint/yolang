@@ -407,6 +407,8 @@ llvm::Instruction::CastOps YoLLVMCompiler::getCastOp(YoProgCompiler::EOperation 
 	case YoProgCompiler::OP_CAST_FP_TO_UI:	return Instruction::FPToUI;
 	case YoProgCompiler::OP_CAST_FP_TRUNC:	return Instruction::FPTrunc;
 	case YoProgCompiler::OP_CAST_FP_EXT:	return Instruction::FPExt;
+	case YoProgCompiler::OP_CAST_PTR_TO_INT:return Instruction::PtrToInt;
+	case YoProgCompiler::OP_CAST_INT_TO_PTR:return Instruction::IntToPtr;
 	}
 	setError(ERROR_UNREACHABLE, node, "Error cast op: %d", (int)eop);
 	return Instruction::Trunc;
@@ -552,6 +554,10 @@ llvm::Value * YoLLVMCompiler::compileOp(FuncParams * func, YoProgCompiler::Scope
 			}
 			else{
 				YO_ASSERT(progVar->ext.index >= 0);
+				if (progVar->isArg && !progVar->isChanged) {
+					YO_ASSERT(false);
+					// ptr = (*func->args)[progVar->ext.index];
+				}
 				ptr = (*func->vars)[progVar->ext.index];
 			}
 			return ptr;
@@ -782,6 +788,8 @@ llvm::Value * YoLLVMCompiler::compileOp(FuncParams * func, YoProgCompiler::Scope
 	case YoProgCompiler::OP_CAST_FP_TO_UI:
 	case YoProgCompiler::OP_CAST_FP_TRUNC:
 	case YoProgCompiler::OP_CAST_FP_EXT:
+	case YoProgCompiler::OP_CAST_PTR_TO_INT:
+	case YoProgCompiler::OP_CAST_INT_TO_PTR:
 		YO_ASSERT(progOp->ops.size() == 1);
 		value = compileOp(func, progScope, progOp->ops[0]);
 		if (!value) {

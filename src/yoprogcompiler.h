@@ -105,10 +105,11 @@ public:
 		virtual ~Type();
 
 		bool isSigned() const;
+		bool isInt() const;
 		bool isFloat() const;
 		bool isNumber() const;
 		bool isMutable() const;
-		bool isPointer() const;
+		bool isPtr() const;
 		bool isRef() const;
 
 		// Type * toPointer(YoProgCompiler*);
@@ -329,6 +330,8 @@ public:
 		OP_CAST_FP_EXT,
 		
 		OP_CAST_PTR,
+		OP_CAST_PTR_TO_INT,
+		OP_CAST_INT_TO_PTR,
 
 		OP_CONST_NULL,
 		OP_CONST_INT,
@@ -667,6 +670,7 @@ protected:
 	Operation * compileSizeOf(Scope*, YoParserNode*);
 	Operation * compileCall(Scope*, YoParserNode*);
 	Operation * compileAssign(Scope*, YoParserNode*);
+	Operation * compileNewArrExprs(Scope*, YoParserNode*);
 	Operation * compileNewObjExprs(Scope*, YoParserNode*);
 	Operation * compileNewObjProps(Scope*, YoParserNode*);
 	Operation * compileBinOp(Scope*, YoParserNode*);

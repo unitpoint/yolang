@@ -158,10 +158,11 @@ extern int yodebug;
      T_NOT = 367,
      T_DOT = 368,
      T_INDEX = 369,
-     T_PTR = 370,
-     T_ARR = 371,
-     T_DOTNAME = 372,
-     NotParen = 373
+     T_REF = 370,
+     T_PTR = 371,
+     T_ARR = 372,
+     T_DOTNAME = 373,
+     NotParen = 374
    };
 #endif
 

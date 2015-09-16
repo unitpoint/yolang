@@ -13,6 +13,16 @@ extern int yodebug;
 
 struct YoExtern
 {
+	static void * malloc(int size)
+	{
+		return ::malloc(size);
+	}
+
+	static void free(void * p)
+	{
+		::free(p);
+	}
+
 	static int snprintf(char * buf, size_t size, const char * fmt, ...)
 	{
 		va_list va;
@@ -49,6 +59,8 @@ void main()
 	YoSystem system;
 	YoProgCompiler progCompiler(&system);
 		
+	progCompiler.addSymbol("malloc", &YoExtern::malloc);
+	progCompiler.addSymbol("free", &YoExtern::free);
 	progCompiler.addSymbol("snprintf", &YoExtern::snprintf);
 	progCompiler.addSymbol("printf", &YoExtern::printf);
 
@@ -70,8 +82,7 @@ void main()
 		llvmCompiler.llvmEE->finalizeObject();
 		llvm::Function * llvmFunc = llvmCompiler.llvmModule->getFunction("@initProgram");
 		if (llvmFunc) {
-			void * mainFunc = llvmCompiler.llvmEE->getPointerToFunction(llvmFunc);
-			void(__cdecl*initProgramFunc)() = (void(__cdecl*)())mainFunc;
+			void(__cdecl*initProgramFunc)() = (void(__cdecl*)())llvmCompiler.llvmEE->getPointerToFunction(llvmFunc);
 			initProgramFunc();
 		}
 		llvmFunc = llvmCompiler.llvmModule->getFunction("main");
