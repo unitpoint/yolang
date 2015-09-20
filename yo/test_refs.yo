@@ -1,14 +1,44 @@
-module test
+mod test
 
 extern func printf(fmt *byte, ...)
 
-func main() {
-	let i = 1
-	let mut j = 2
-	let k &int = i
-	let mut a &int = i
-	
-	// a = 10
-	printf("a: %d\n", a)
+func test_rr(i mut int) {
+	let a &mut int = i
+	a += 10
+	printf("rr: %d => %d\n", a, i)
+}
 
+func touch(a &mut int) {
+	a += 10
+}
+
+func test_pp() {
+	let i = 10
+	let j = &i
+	let k = &j
+	let r &&int = k as &&int
+	printf("test pp: %d = %d\n", **k, r)
+	
+}
+
+func main() float64 {
+	test_rr(11)
+	test_pp()
+	
+	let i mut = 1
+	let j mut = 2
+	touch(i); touch(j)
+	// let k &int = i
+	let a &mut int = i
+	touch(a)
+	printf("%d, %d, %d => 21, 12, 21\n", i, j, a)
+	
+	a = j
+	printf("%d, %d, %d => 12, 12, 12\n", i, j, a)
+	
+	*&a = j + 1
+	touch(a)
+	printf("%d, %d, %d => 23, 12, 23\n", i, j, a)
+	
+	return a
 }

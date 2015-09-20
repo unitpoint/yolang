@@ -41,8 +41,30 @@ struct YoExtern
 	}
 };
 
+int ii()
+{
+	return 0;
+}
+
+/*
+void tryEx()
+{
+	__try {
+		int j = 10 / ii();
+		printf("j: %d\n", j);
+	}
+	__except (EXCEPTION_EXECUTE_HANDLER) {
+		int err = (int)_exception_code();
+		// void * info = _exception_info();
+		printf("err: %d\n", err);
+	}
+}
+*/
+
 void main()
 {
+	// tryEx();
+
 	// LLVMLoadLibraryPermanently("c:\\Sources\\yolang\\win\\yolang-llvm\\yolang-ext-dll.Windows.dll");
 	// HANDLE h = LoadLibraryA("yolang-ext-dll.Windows.dll");
 
@@ -50,15 +72,15 @@ void main()
 	// yodebug = 1;
 #endif
 
-	// const char * filename = "../../yo/test_refs.yo";
-	const char * filename = "../../yo/test_funcs.yo";
+	const char * filename = "../../yo/test_refs.yo";
+	// const char * filename = "../../yo/test_funcs.yo";
 	// const char * filename = "../../yo/test_fannkuch.yo";
 	// const char * filename = "test-llvm.yo";
 	// const char * filename = "test-01.yo";
 
 	YoSystem system;
 	YoProgCompiler progCompiler(&system);
-		
+
 	progCompiler.addSymbol("malloc", &YoExtern::malloc);
 	progCompiler.addSymbol("free", &YoExtern::free);
 	progCompiler.addSymbol("snprintf", &YoExtern::snprintf);

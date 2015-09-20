@@ -89,7 +89,7 @@ void yyerror(const char* s);
 %pure_parser
 %locations
 %error-verbose
-%expect 7
+%expect 8
 
 %token T_MODULE T_IMPORT
 %token T_DOTDOTDOT
@@ -623,7 +623,8 @@ type_chan:
 		T_CHAN type	{ yoParserTypeChan(&$$, &$2, parm, &yyloc); }
 
 type_ref:
-		T_AND type	{ yoParserTypeRef(&$$, &$2, parm, &yyloc); }
+		T_AND 		type	{ yoParserTypeRef(&$$, &$2, parm, &yyloc); }
+	|	T_ANDAND 	type	{ yoParserTypeRef(&$$, &$2, parm, &yyloc); yoParserTypeRef(&$$, &$$, parm, &yyloc); }
 		
 type_ptr:
 		T_MUL type	{ yoParserTypePtr(&$$, &$2, parm, &yyloc); }
@@ -771,7 +772,9 @@ expr_base:
 	|	T_CHAN_ACCESS expr %prec T_UNARY { yoParserUnaryOp(&$$, &$2, T_CHAN_ACCESS, parm, &yyloc); }
 	|	T_SIZEOF expr %prec T_UNARY { yoParserSizeOf(&$$, &$2, parm, &yyloc); }
 	|	T_MUL 	expr %prec T_UNARY	{ yoParserUnaryOp(&$$, &$2, T_INDIRECT, parm, &yyloc); }
+	|	T_POW	expr %prec T_UNARY	{ yoParserUnaryOp(&$$, &$2, T_INDIRECT, parm, &yyloc); yoParserUnaryOp(&$$, &$$, T_INDIRECT, parm, &yyloc); }
 	|	T_AND	expr %prec T_UNARY	{ yoParserUnaryOp(&$$, &$2, T_ADDR, parm, &yyloc); }
+	|	T_ANDAND expr %prec T_UNARY	{ yoParserUnaryOp(&$$, &$2, T_ADDR, parm, &yyloc); yoParserUnaryOp(&$$, &$$, T_ADDR, parm, &yyloc); }
 /*	|	'(' type ')' expr %prec T_UNARY */
 /*	|	T_AT  T_NAME %prec T_UNARY	{ yoParserUnaryOp(&$$, &$2, T_AT, parm, &yyloc); } */
 

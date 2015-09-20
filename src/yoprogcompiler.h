@@ -26,7 +26,7 @@ public:
 		ERROR_NAME_NOT_FOUND,
 		ERROR_FIELD_NOT_FOUND,
 		ERROR_TYPE,
-		ERROR_OP,
+		// ERROR_OP,
 		ERROR_CONVERT_TO_TYPE,
 		ERROR_TYPE_UNKNOWN,
 		ERROR_TYPE_DUPLICATED,
@@ -580,10 +580,13 @@ protected:
 
 	enum ESpecAssignRet
 	{
+		SPEC_INIT,
+		SPEC_ASSIGN,
 		SPEC_PRE,
 		SPEC_POST,
 	};
-	Operation * newSpecAssignOp(Scope*, ESpecAssignRet, Operation * dstPtr, Operation * value, EOperation bin, YoParserNode*);
+	Operation * newAssignOp(Scope*, ESpecAssignRet, Operation * dstPtr, Operation * value, EOperation bin, YoParserNode*);
+	// Operation * newSpecAssignOp(Scope*, ESpecAssignRet, Operation * dstPtr, Operation * value, EOperation bin, YoParserNode*);
 
 	int getConvertKey(EType from, EType to);
 	Type * getBinOpNumCast(Type * a, Type * b);
