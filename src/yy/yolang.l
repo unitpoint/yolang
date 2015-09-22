@@ -44,7 +44,7 @@
 #define yymore()     goto yymore_restart
 
 /* perform sanity check. If this message is triggered you should
-   increase the YO_LEX_MAXFILL value in the zend_streams.h file */
+   increase the YO_LEX_MAXFILL value in the yoparser.h file */
 /*!max:re2c */
 #if YO_LEX_MAXFILL < YYMAXFILL
 # error YO_LEX_MAXFILL should be greater than or equal to YYMAXFILL
@@ -202,6 +202,10 @@ CLOSE_BRACKET	= (")"|"}");
 <ST_YOLANG,ST_INJECT>"loop" { return T_LOOP; }
 <ST_YOLANG,ST_INJECT>"break" { return T_BREAK; }
 <ST_YOLANG,ST_INJECT>"continue" { return T_CONTINUE; }
+<ST_YOLANG,ST_INJECT>"switch" { return T_SWITCH; }
+<ST_YOLANG,ST_INJECT>"case" { return T_CASE; }
+<ST_YOLANG,ST_INJECT>"default" { return T_DEFAULT; }
+<ST_YOLANG,ST_INJECT>"fallthrough" { return T_FALLTHROUGH; }
 <ST_YOLANG,ST_INJECT>"in" { return T_IN; }
 <ST_YOLANG,ST_INJECT>"if" { return T_IF; }
 <ST_YOLANG,ST_INJECT>"else" { return T_ELSE; }
@@ -243,13 +247,5 @@ CLOSE_BRACKET	= (")"|"}");
 
 <ST_YOLANG,ST_INJECT>{ANY_CHAR} { return yoLexChar(parserElem, parm, parserLoc); }
 
-*/
-
-/*
-comment:
-re2c:yyfill:check = 0;
-<ST_YOLANG,ST_INJECT>"*?	{ goto restart; } 
-<ST_YOLANG,ST_INJECT>{NEWLINE} { yoLexNewLine(parser); goto comment; }
-<ST_YOLANG,ST_INJECT>{ANY_CHAR} { goto comment; }
 */
 }

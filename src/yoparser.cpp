@@ -844,8 +844,9 @@ static void yoParserDumpNode(YoParserNode * node, int depth, EYoParserNodeScopeT
 	char * name;
 	yoParserDumpNode(node->prev, depth, scope);
 
+	bool isCase = node->type == YO_NODE_STMT_CASE || node->type == YO_NODE_STMT_DEFAULT;
 	if (scope == YO_NODE_SCOPE_STATEMENT) {
-		printDepth(depth);
+		printDepth(depth - (isCase ? 1 : 0));
 	}
 	else if (node->prev) {
 		printf(", ");
@@ -899,6 +900,33 @@ static void yoParserDumpNode(YoParserNode * node, int depth, EYoParserNodeScopeT
 			yoParserDumpNode(node->data.stmtFor.body, depth + 2, YO_NODE_SCOPE_STATEMENT);
 		}
 		printDepth(depth); printf("ENDFOR");
+		break;
+
+	case YO_NODE_STMT_SWITCH:
+		printf("SWITCH\n");
+		if (node->data.stmtSwitch.condition) {
+			printDepth(depth + 1); printf("CONDITION\n");
+			yoParserDumpNode(node->data.stmtSwitch.condition, depth + 2, YO_NODE_SCOPE_STATEMENT);
+		}
+		if (node->data.stmtSwitch.body) {
+			printDepth(depth + 1); printf("BODY\n");
+			yoParserDumpNode(node->data.stmtSwitch.body, depth + 2, YO_NODE_SCOPE_STATEMENT);
+		}
+		printDepth(depth); printf("ENDSWITCH");
+		break;
+
+	case YO_NODE_STMT_CASE:
+		printf("CASE ");
+		yoParserDumpNode(node->data.stmtCase.expr, depth, YO_NODE_SCOPE_OP);
+		printf(":");
+		break;
+
+	case YO_NODE_STMT_DEFAULT:
+		printf("DEFAULT:");
+		break;
+
+	case YO_NODE_STMT_FALLTHROUGH:
+		printf("FALLTHROUGH");
 		break;
 
 	case YO_NODE_STMT_IF:
@@ -1229,7 +1257,7 @@ static void yoParserDumpNode(YoParserNode * node, int depth, EYoParserNodeScopeT
 
 	if (scope == YO_NODE_SCOPE_STATEMENT) {
 		// printDepth(depth); 
-		printf(";\n");
+		printf(isCase ? "\n" : ";\n");
 	}
 }
 
@@ -1831,6 +1859,37 @@ void yoParserStmtBreak(YYSTYPE * r, YYSTYPE * label, int op, void * parm, YYLTYP
 	YoParserNode * node = parser->newNode(YO_NODE_STMT_BREAK, loc);
 	node->data.stmtBreak.op = op;
 	node->data.stmtBreak.label = label ? label->node : NULL;
+	r->node = node;
+}
+
+void yoParserStmtSwitch(YYSTYPE * r, YYSTYPE * condition, YYSTYPE * body, void * parm, YYLTYPE * loc)
+{
+	YoParser * parser = dynamic_cast<YoParser*>((YoParser*)parm);
+	YoParserNode * node = parser->newNode(YO_NODE_STMT_SWITCH, loc);
+	node->data.stmtSwitch.condition = condition->node;
+	node->data.stmtSwitch.body = body->node;
+	r->node = node;
+}
+
+void yoParserStmtCase(YYSTYPE * r, YYSTYPE * expr, void * parm, YYLTYPE * loc)
+{
+	YoParser * parser = dynamic_cast<YoParser*>((YoParser*)parm);
+	YoParserNode * node = parser->newNode(YO_NODE_STMT_CASE, loc);
+	node->data.stmtCase.expr = expr->node;
+	r->node = node;
+}
+
+void yoParserStmtDefault(YYSTYPE * r, void * parm, YYLTYPE * loc)
+{
+	YoParser * parser = dynamic_cast<YoParser*>((YoParser*)parm);
+	YoParserNode * node = parser->newNode(YO_NODE_STMT_DEFAULT, loc);
+	r->node = node;
+}
+
+void yoParserStmtFallThrough(YYSTYPE * r, void * parm, YYLTYPE * loc)
+{
+	YoParser * parser = dynamic_cast<YoParser*>((YoParser*)parm);
+	YoParserNode * node = parser->newNode(YO_NODE_STMT_FALLTHROUGH, loc);
 	r->node = node;
 }
 

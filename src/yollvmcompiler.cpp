@@ -677,6 +677,17 @@ llvm::Value * YoLLVMCompiler::compileOp(FuncParams * func, YoProgCompiler::Scope
 	case YoProgCompiler::OP_CALL_FUNC:
 		return compileCall(func, progScope, progOp);
 
+	case YoProgCompiler::OP_BEGIN_VAR:
+	case YoProgCompiler::OP_END_VAR:
+		for (i = 0; i < (int)progOp->ops.size(); i++) {
+			value = compileOp(func, progScope, progOp->ops[i]);
+			if (!value) {
+				YO_ASSERT(isError());
+				return NULL;
+			}
+		}
+		return Constant::getNullValue(Type::getInt8Ty(*llvmContext));
+
 	case YoProgCompiler::OP_VAR:
 		for (i = 0; i < (int)progOp->ops.size(); i++) {
 			value = compileOp(func, progScope, progOp->ops[i]);
@@ -819,6 +830,21 @@ llvm::Value * YoLLVMCompiler::compileOp(FuncParams * func, YoProgCompiler::Scope
 
 	case YoProgCompiler::OP_FOR:
 		return compileFor(func, progScope, progOp);
+
+	case YoProgCompiler::OP_SWITCH_EXPR:
+		return compileSwitchExpr(func, progScope, progOp);
+
+	case YoProgCompiler::OP_SWITCH_LOGICAL:
+		return compileSwitchLogical(func, progScope, progOp);
+
+	case YoProgCompiler::OP_CASE:
+		return compileCase(func, progScope, progOp);
+
+	case YoProgCompiler::OP_DEFAULT:
+		return compileDefault(func, progScope, progOp);
+
+	case YoProgCompiler::OP_FALLTHROUGH:
+		return compileFallThrough(func, progScope, progOp);
 
 	case YoProgCompiler::OP_BREAK:
 	case YoProgCompiler::OP_CONTINUE:
@@ -975,6 +1001,21 @@ bool YoLLVMCompiler::popLabelBlock(std::vector<LabelBlock>& stack, const LabelBl
 	return true;
 }
 
+void YoLLVMCompiler::pushSwitchBlock(SwitchBlock * b, YoParserNode*)
+{
+	switchBlocks.push_back(b);
+}
+
+bool YoLLVMCompiler::popSwitchBlock(SwitchBlock * b, YoParserNode * node)
+{
+	if (switchBlocks.size() < 1 || switchBlocks.back() != b) {
+		setError(ERROR_UNREACHABLE, node, "Switch blocks are broken");
+		return false;
+	}
+	switchBlocks.pop_back();
+	return true;
+}
+
 llvm::Value * YoLLVMCompiler::compileFor(FuncParams * func, YoProgCompiler::Scope * progScope, YoProgCompiler::Operation * progOp)
 {
 	YO_ASSERT(progOp->eop == YoProgCompiler::OP_FOR && progOp->ops.size() == 0);
@@ -1041,6 +1082,197 @@ llvm::Value * YoLLVMCompiler::compileFor(FuncParams * func, YoProgCompiler::Scop
 		return NULL;
 	}
 
+	return Constant::getNullValue(Type::getInt8Ty(*llvmContext));
+}
+
+llvm::Value * YoLLVMCompiler::compileSwitchExpr(FuncParams * func, YoProgCompiler::Scope * progScope, YoProgCompiler::Operation * progOp)
+{
+	YO_ASSERT(progOp->eop == YoProgCompiler::OP_SWITCH_EXPR); // && progOp->ops.size() == 0);
+
+	BasicBlock * condBB = BasicBlock::Create(*llvmContext, "condition");
+	BasicBlock * bodyBB = BasicBlock::Create(*llvmContext, "body");
+	BasicBlock * testBB = BasicBlock::Create(*llvmContext, "test");
+	BasicBlock * defaultBB = BasicBlock::Create(*llvmContext, "default");
+	BasicBlock * afterBB = BasicBlock::Create(*llvmContext, "after");
+
+	SwitchBlock switchBlock;
+	switchBlock.condBB = condBB;
+	switchBlock.bodyBB = bodyBB;
+	switchBlock.testBB = testBB;
+	switchBlock.defaultBB = defaultBB;
+	switchBlock.afterBB = afterBB;
+	// switchBlock.condValue = NULL;
+	// switchBlock.switchInst = NULL;
+
+	pushLabelBlock(breakLabels, afterBB, progOp->parserNode);
+	pushSwitchBlock(&switchBlock, progOp->parserNode);
+
+	BasicBlock * curBB = func->builder->GetInsertBlock();
+	if (curBB->size() == 0 || !curBB->back().isTerminator()) {
+		func->builder->CreateBr(condBB);
+	}
+	condBB->insertInto(func->llvmFunc);
+	func->builder->SetInsertPoint(condBB);
+
+	YO_ASSERT(progOp->stmtSwitch.conditionOp);
+	Value * condition = compileOp(func, progScope, progOp->stmtSwitch.conditionOp);
+	if (!condition) {
+		YO_ASSERT(isError());
+		bodyBB->insertInto(func->llvmFunc);
+		testBB->insertInto(func->llvmFunc);
+		defaultBB->insertInto(func->llvmFunc);
+		afterBB->insertInto(func->llvmFunc);
+		return NULL;
+	}
+	// switchBlock.condValue = condition;
+	// switchBlock.switchInst = func->builder->CreateSwitch(condition, testBB, progOp->ops.size());
+	
+	bodyBB->insertInto(func->llvmFunc);
+	func->builder->SetInsertPoint(bodyBB);
+	func->builder->CreateBr(testBB);
+	if (!compileScopeBody(func, progOp->stmtFor.bodyScope)) {
+		YO_ASSERT(isError());
+		// bodyBB->insertInto(func->llvmFunc);
+		testBB->insertInto(func->llvmFunc);
+		defaultBB->insertInto(func->llvmFunc);
+		afterBB->insertInto(func->llvmFunc);
+		return NULL;
+	}
+	// func->builder->SetInsertPoint(thenBB);
+	bodyBB = func->builder->GetInsertBlock();
+	if (bodyBB->size() == 0 || !bodyBB->back().isTerminator()) {
+		func->builder->CreateBr(afterBB);
+	}
+
+	int i, constValues = 0;
+	for (i = 0; i < (int)switchBlock.caseElemList.size(); i++) {
+		SwitchBlock::CaseElem& caseElem = switchBlock.caseElemList[i];
+		if (dyn_cast<ConstantInt>(caseElem.value)) {
+			constValues++;
+		}
+	}
+	func->builder->SetInsertPoint(condBB);
+	if (constValues > 0) {
+		Value * condValue = func->builder->CreateLoad(condition);
+		SwitchInst * switchInst = func->builder->CreateSwitch(condValue, testBB, constValues);
+		for (i = 0; i < (int)switchBlock.caseElemList.size(); i++) {
+			SwitchBlock::CaseElem& caseElem = switchBlock.caseElemList[i];
+			ConstantInt * value = dyn_cast<ConstantInt>(caseElem.value);
+			if (value) {
+				switchInst->addCase(value, caseElem.bb);
+			}
+		}
+	}
+
+	testBB->insertInto(func->llvmFunc);
+	func->builder->SetInsertPoint(testBB);
+	for (i = 0; i < (int)switchBlock.caseElemList.size(); i++) {
+		SwitchBlock::CaseElem& caseElem = switchBlock.caseElemList[i];
+		if (!dyn_cast<ConstantInt>(caseElem.value)) {
+			YO_ASSERT(false);
+		}
+	}
+	if (defaultBB->getParent()) {
+		func->builder->CreateBr(defaultBB);
+	}
+	else{
+		func->builder->CreateBr(afterBB);
+	}
+
+	afterBB->insertInto(func->llvmFunc);
+	func->builder->SetInsertPoint(afterBB);
+
+	if (!popLabelBlock(breakLabels, afterBB, progOp->parserNode) || !popSwitchBlock(&switchBlock, progOp->parserNode)) {
+		YO_ASSERT(isError());
+		return NULL;
+	}
+	return Constant::getNullValue(Type::getInt8Ty(*llvmContext));
+}
+
+llvm::Value * YoLLVMCompiler::compileSwitchLogical(FuncParams * func, YoProgCompiler::Scope * progScope, YoProgCompiler::Operation * progOp)
+{
+	YO_ASSERT(progOp->eop == YoProgCompiler::OP_SWITCH_LOGICAL && progOp->ops.size() == 0);
+	YO_ASSERT(false);
+	return Constant::getNullValue(Type::getInt8Ty(*llvmContext));
+}
+
+llvm::Value * YoLLVMCompiler::compileCase(FuncParams * func, YoProgCompiler::Scope * progScope, YoProgCompiler::Operation * progOp)
+{
+	if (switchBlocks.size() == 0) {
+		setError(ERROR_UNREACHABLE, progOp->parserNode, "Error 'case' usage");
+		return NULL;
+	}
+	SwitchBlock * switchBlock = switchBlocks.back();
+	BasicBlock * caseBB = BasicBlock::Create(*llvmContext, "case");
+
+	BasicBlock * curBB = func->builder->GetInsertBlock();
+	if (curBB->size() == 0 || !curBB->back().isTerminator()) {
+		func->builder->CreateBr(caseBB);
+	}
+	caseBB->insertInto(func->llvmFunc);
+	func->builder->SetInsertPoint(switchBlock->condBB);
+
+	SwitchBlock::CaseElem caseElem;
+	caseElem.bb = caseBB;
+	for (int i = 0; i < (int)progOp->ops.size(); i++) {
+		Value * value = compileOp(func, progScope, progOp->ops[i]);
+		if (!value) {
+			YO_ASSERT(isError());
+			return NULL;
+		}
+		caseElem.value = value;
+		switchBlock->caseElemList.push_back(caseElem);
+#if 0
+		switchBlock->caseBBList.push_back(caseBB);
+		ConstantInt * constInt = dyn_cast<ConstantInt>(right);
+		if (constInt) {
+			switchBlock->constIntValues.push_back(constInt);
+			// switchBlock->switchInst->addCase(constInt, caseBB);
+		}
+		else{
+			switchBlock->values.push_back(right);
+			/*
+			YoProgCompiler::Operation * varProgOp = progCompiler->newVarOp(switchBlock->condProgVar, switchBlock->condProgVar->parserNode);
+			Value * left = compileOp(func, progScope, varProgOp);
+			if (!left) {
+				YO_ASSERT(isError());
+				return NULL;
+			}
+			*/
+		}
+#endif
+	}
+	func->builder->SetInsertPoint(caseBB);
+	return Constant::getNullValue(Type::getInt8Ty(*llvmContext));
+}
+
+llvm::Value * YoLLVMCompiler::compileDefault(FuncParams * func, YoProgCompiler::Scope * progScope, YoProgCompiler::Operation * progOp)
+{
+	if (switchBlocks.size() == 0) {
+		setError(ERROR_UNREACHABLE, progOp->parserNode, "Error 'default' usage");
+		return NULL;
+	}
+	SwitchBlock * switchBlock = switchBlocks.back();
+	if (switchBlock->defaultBB->getParent()) {
+		setError(ERROR_UNREACHABLE, progOp->parserNode, "Duplicate 'default'");
+		return NULL;
+	}
+	BasicBlock * curBB = func->builder->GetInsertBlock();
+	if (curBB->size() == 0 || !curBB->back().isTerminator()) {
+		func->builder->CreateBr(switchBlock->defaultBB);
+	}
+	switchBlock->defaultBB->insertInto(func->llvmFunc);
+	func->builder->SetInsertPoint(switchBlock->defaultBB);
+	return Constant::getNullValue(Type::getInt8Ty(*llvmContext));
+}
+
+llvm::Value * YoLLVMCompiler::compileFallThrough(FuncParams * func, YoProgCompiler::Scope * progScope, YoProgCompiler::Operation * progOp)
+{
+	if (switchBlocks.size() == 0) {
+		setError(ERROR_UNREACHABLE, progOp->parserNode, "Error 'fallthrough' usage");
+		return NULL;
+	}
+	// no break, do nothing
 	return Constant::getNullValue(Type::getInt8Ty(*llvmContext));
 }
 

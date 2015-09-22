@@ -70,6 +70,10 @@ void yoParserCall(YYSTYPE * r, YYSTYPE * name, YYSTYPE * args, void * parm, YYLT
 void yoParserStmtReturn(YYSTYPE * r, YYSTYPE * expr, void * parm, YYLTYPE * loc);
 void yoParserEnableBrace(void * parm, YYLTYPE * loc);
 void yoParserStmtFor(YYSTYPE * r, YYSTYPE * init, YYSTYPE * condition, YYSTYPE * step, YYSTYPE * body, void * parm, YYLTYPE * loc);
+void yoParserStmtSwitch(YYSTYPE * r, YYSTYPE * condition, YYSTYPE * body, void * parm, YYLTYPE * loc);
+void yoParserStmtCase(YYSTYPE * r, YYSTYPE * expr, void * parm, YYLTYPE * loc);
+void yoParserStmtDefault(YYSTYPE * r, void * parm, YYLTYPE * loc);
+void yoParserStmtFallThrough(YYSTYPE * r, void * parm, YYLTYPE * loc);
 void yoParserStmtBreak(YYSTYPE * r, YYSTYPE * label, int op, void * parm, YYLTYPE * loc);
 void yoParserStmtIf(YYSTYPE * r, YYSTYPE * ifExpr, YYSTYPE * thenStmt, YYSTYPE * elseIfList, YYSTYPE * elseStmt, void * parm, YYLTYPE * loc);
 void yoParserElseIfList(YYSTYPE * r, YYSTYPE * a, YYSTYPE * b, void * parm, YYLTYPE * loc);
@@ -120,6 +124,7 @@ void yyerror(const char* s);
 %token T_FOR T_WHILE T_LOOP
 %token T_BREAK
 %token T_CONTINUE
+%token T_SWITCH T_CASE T_DEFAULT T_FALLTHROUGH
 %token T_IN
 %token T_IF
 %token T_ELSE
@@ -357,6 +362,10 @@ stmt_no_emptyline:
 	|	decl_type end_stmt
 	|	if_stmt
 	|	for_stmt
+	|	switch_stmt
+	|	case_stmt
+	|	default_stmt
+	|	fallthrough_stmt
 	|	stmt_post_if catch end_stmt	{ yoParserStmtCatch(&$$, &$1, &$2, parm, &yyloc); }
 	|	error stmt_error_end	{ yoParserError(&$$, yymsgbuf, parm, &yyloc); yyclearin; YYABORT; }
 
@@ -416,6 +425,23 @@ var_assign_list:
 var_assign_elem:
 		decl_var_elem
 		
+switch_header:
+		if_header
+		
+switch_stmt:
+		T_SWITCH { yoParserEnableBrace(parm, &yyloc); } switch_header brace_stmt { 
+			yoParserStmtSwitch(&$$, &$3, &$4, parm, &yyloc);
+		}
+		
+case_stmt:
+		T_CASE expr_list ':' { yoParserStmtCase(&$$, &$2, parm, &yyloc); }
+
+default_stmt:
+		T_DEFAULT ':' { yoParserStmtDefault(&$$, parm, &yyloc); }
+		
+fallthrough_stmt:
+		T_FALLTHROUGH { yoParserStmtFallThrough(&$$, parm, &yyloc); }
+
 if_header:
 		expr
 	

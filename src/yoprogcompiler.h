@@ -22,11 +22,10 @@ public:
 		ERROR_FUNC_AMBIGUOUS,
 		ERROR_VAR_DUPLICATED,
 		ERROR_VAR_NOT_USED,
-		ERROR_VAR_NOT_INITIALIZED,
+		// ERROR_VAR_NOT_INITIALIZED, vars is being initialized automatically
 		ERROR_NAME_NOT_FOUND,
 		ERROR_FIELD_NOT_FOUND,
 		ERROR_TYPE,
-		// ERROR_OP,
 		ERROR_CONVERT_TO_TYPE,
 		ERROR_TYPE_UNKNOWN,
 		ERROR_TYPE_DUPLICATED,
@@ -35,6 +34,7 @@ public:
 		ERROR_CALL_ARGS_NUMBER,
 		ERROR_RETURN_IN_MIDDLE,
 		ERROR_RETURN_REQUIRED,
+		ERROR_SYNTAX,
 		ERROR_ESCAPE_CHAR,
 		ERROR_LINK_EXTERN_FUNC,
 		ERROR_IN_PARSER,
@@ -196,6 +196,7 @@ public:
 		// VALUE_SCOPE,
 	};
 
+	class Scope;
 	class Variable
 	{
 	public:
@@ -203,6 +204,7 @@ public:
 		std::string name;
 		YoParserNode * parserNode;
 
+		Scope * scope;
 		Type * type;
 		bool isGlobal;
 		bool isArg;
@@ -220,7 +222,7 @@ public:
 			int index;
 		} ext;
 
-		Variable(Type * type, const std::string& name, YoParserNode*);
+		Variable(Scope * scope, Type * type, const std::string& name, YoParserNode*);
 		~Variable();
 	};
 
@@ -241,6 +243,9 @@ public:
 
 		Scope * parent;
 		EScope escope;
+		bool allowBreak;
+		bool allowContinue;
+		bool allowCase;
 
 		std::vector<Scope*> scopes;
 		std::vector<Variable*> vars;
@@ -313,9 +318,16 @@ public:
 	enum EOperation
 	{
 		OP_NOP,
+		OP_BEGIN_VAR,
+		OP_END_VAR,
 		OP_SCOPE,
 		OP_FOR,
 		OP_IF,
+		OP_SWITCH_EXPR,
+		OP_SWITCH_LOGICAL,
+		OP_CASE,
+		OP_DEFAULT,
+		OP_FALLTHROUGH,
 		OP_BREAK,
 		OP_CONTINUE,
 
@@ -454,6 +466,11 @@ public:
 				Scope * stepScope;
 			} stmtFor;
 
+			struct {
+				Operation * conditionOp;
+				Scope * bodyScope;
+			} stmtSwitch;
+
 			int strIndex;
 		};
 
@@ -588,8 +605,9 @@ protected:
 	Operation * newAssignOp(Scope*, ESpecAssignRet, Operation * dstPtr, Operation * value, EOperation bin, YoParserNode*);
 	// Operation * newSpecAssignOp(Scope*, ESpecAssignRet, Operation * dstPtr, Operation * value, EOperation bin, YoParserNode*);
 
-	int getConvertKey(EType from, EType to);
-	Type * getBinOpNumCast(Type * a, Type * b);
+	Type * getBestNumType(Type * a, Type * b);
+	
+	int getCastKey(EType from, EType to);
 	CastOp getCastOp(Type * from, Type * to);
 	
 	void collectNodesInReversList(std::vector<YoParserNode*>& out, YoParserNode*);
@@ -666,6 +684,10 @@ protected:
 	bool compileStmtIf(Scope*, YoParserNode*);
 	bool compileStmtFor(Scope*, YoParserNode*);
 	bool compileStmtBreak(Scope*, YoParserNode*);
+	bool compileStmtSwitch(Scope*, YoParserNode*);
+	bool compileStmtCase(Scope*, YoParserNode*);
+	bool compileStmtDefault(Scope*, YoParserNode*);
+	bool compileStmtFallThrough(Scope*, YoParserNode*);
 	bool compileStmtReturn(Scope*, YoParserNode*);
 	bool compileStmtCall(Scope*, YoParserNode*);
 	Operation * compileSubFunc(Scope*, YoParserNode*);

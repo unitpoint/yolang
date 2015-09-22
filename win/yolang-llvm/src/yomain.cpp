@@ -72,7 +72,8 @@ void main()
 	// yodebug = 1;
 #endif
 
-	const char * filename = "../../yo/test_refs.yo";
+	const char * filename = "../../yo/test_switch.yo";
+	// const char * filename = "../../yo/test_refs.yo";
 	// const char * filename = "../../yo/test_funcs.yo";
 	// const char * filename = "../../yo/test_fannkuch.yo";
 	// const char * filename = "test-llvm.yo";
@@ -87,6 +88,8 @@ void main()
 	progCompiler.addSymbol("printf", &YoExtern::printf);
 
 	if (!progCompiler.run(filename)) {
+		printf("=== PARSERS\n");
+		progCompiler.dumpParsers();
 		progCompiler.dumpError();
 		return;
 	}

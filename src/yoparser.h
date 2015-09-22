@@ -13,7 +13,7 @@
 #define YYSTYPE YoParserStackElement
 #define YYLTYPE YoParserLocation
 
-#define YO_LEX_MAXFILL 10
+#define YO_LEX_MAXFILL 12
 
 #include "yolang-l.h"
 #include "yolang-y.h"
@@ -72,6 +72,10 @@ enum EYoParserNodeType {
 	YO_NODE_STMT_RETURN,
 	YO_NODE_STMT_FOR,
 	YO_NODE_STMT_BREAK,
+	YO_NODE_STMT_SWITCH,
+	YO_NODE_STMT_CASE,
+	YO_NODE_STMT_DEFAULT,
+	YO_NODE_STMT_FALLTHROUGH,
 	YO_NODE_STMT_IF,
 	YO_NODE_ELSEIF,
 	// YO_NODE_ELSEIF_LIST,
@@ -385,6 +389,15 @@ struct YoParserNode
 			YoParserNode * step;
 			YoParserNode * body;
 		} stmtFor;
+
+		struct {
+			YoParserNode * condition;
+			YoParserNode * body;
+		} stmtSwitch;
+
+		struct {
+			YoParserNode * expr;
+		} stmtCase;
 
 		struct {
 			int op;

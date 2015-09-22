@@ -54,6 +54,7 @@ bool YoProgCompiler::Type::isInt() const
 	case TYPE_INT16:
 	case TYPE_INT32:
 	case TYPE_INT64:
+	case TYPE_BOOL:
 	case TYPE_UINT8:
 	case TYPE_UINT16:
 	case TYPE_UINT32:
@@ -75,6 +76,7 @@ bool YoProgCompiler::Type::isNumber() const
 	case TYPE_INT16:
 	case TYPE_INT32:
 	case TYPE_INT64:
+	case TYPE_BOOL:
 	case TYPE_UINT8:
 	case TYPE_UINT16:
 	case TYPE_UINT32:
@@ -202,9 +204,10 @@ YoProgCompiler::FuncDataType::~FuncDataType()
 // ==============================================================
 // ==============================================================
 
-YoProgCompiler::Variable::Variable(Type * p_type, const std::string& p_name, YoParserNode * p_node) : name(p_name)
+YoProgCompiler::Variable::Variable(Scope * p_scope, Type * p_type, const std::string& p_name, YoParserNode * p_node) : name(p_name)
 {
 	parserNode = p_node;
+	scope = p_scope;
 	type = p_type;
 	isGlobal = false;
 	isArg = false;
@@ -231,7 +234,10 @@ YoProgCompiler::Scope::Scope(Scope * p_parent, EScope p_escope, const std::strin
 {
 	parent = p_parent;
 	escope = p_escope;
-
+	allowBreak = false;
+	allowContinue = false;
+	allowCase = false;
+	
 	if (parent) {
 		parent->scopes.push_back(this);
 	}
@@ -651,9 +657,23 @@ void YoProgCompiler::dump()
 				// printDepth(depth); printf("begin OP_BIN_OP %s\n", name);
 				dumpOp(func, scope, op->ops[0], depth + 0);
 				dumpOp(func, scope, op->ops[1], depth + 0);
-				printDepth(depth); printf("OP_BIN_OP %s ", name);
+				printDepth(depth); printf("BIN OP %s ", name);
 				dumpType(op->type);
 				printf("\n");
+				return;
+
+			case OP_BEGIN_VAR:
+				// YO_ASSERT(!op->var->initVar);
+				printDepth(depth); printf("BEGIN VAR %s#%d\n", op->var->name.c_str(), indexOf(func, op->var));
+				if (op->ops.size() > 0) {
+					YO_ASSERT(op->ops.size() == 1);
+					dumpOp(func, scope, op->ops[0], depth + 1);
+				}
+				return;
+
+			case OP_END_VAR:
+				YO_ASSERT(op->ops.size() == 0);
+				printDepth(depth); printf("END VAR %s#%d\n", op->var->name.c_str(), indexOf(func, op->var));
 				return;
 
 			case OP_IF:
@@ -689,6 +709,44 @@ void YoProgCompiler::dump()
 				printDepth(depth); printf("ENDFOR\n");
 				return;
 
+			case OP_SWITCH_EXPR:
+			case OP_SWITCH_LOGICAL:
+				// YO_ASSERT(op->ops.size() == 0);
+				if (op->stmtSwitch.conditionOp) {
+					printDepth(depth); printf("SWITCH EXPR\n");
+					dumpOp(func, scope, op->stmtSwitch.conditionOp, depth + 1);
+				}
+				else{
+					printDepth(depth); printf("SWITCH LOGICAL\n");
+				}
+				if (op->stmtSwitch.bodyScope) {
+					printDepth(depth); printf("BODY\n");
+					dumpScope(func, op->stmtSwitch.bodyScope, depth + 1);
+				}
+				printDepth(depth); printf("ENDSWITCH\n");
+				return;
+
+			case OP_CASE:
+				printDepth(depth - 1); printf("CASE\n");
+				for (i = 0; i < (int)op->ops.size(); i++) {
+					if (i > 0) {
+						printDepth(depth); printf(",\n");
+					}
+					dumpOp(func, scope, op->ops[i], depth);
+				}
+				printDepth(depth - 1); printf("ENDCASE\n");
+				return;
+
+			case OP_DEFAULT:
+				YO_ASSERT(op->ops.size() == 0);
+				printDepth(depth - 1); printf("DEFAULT\n");
+				return;
+
+			case OP_FALLTHROUGH:
+				YO_ASSERT(op->ops.size() == 0);
+				printDepth(depth); printf("FALLTHROUGH\n");
+				return;
+
 			case OP_BREAK:
 			case OP_CONTINUE:
 				YO_ASSERT(op->ops.size() == 0);
@@ -705,12 +763,12 @@ void YoProgCompiler::dump()
 				if (op->ops.size() > 0) {
 					YO_ASSERT(op->ops.size() == 1);
 					dumpOp(func, scope, op->ops[0], depth + 0);
-					printDepth(depth); printf("OP_RETURN ");
+					printDepth(depth); printf("RETURN ");
 					dumpType(op->type);
 					printf("\n");
 					return;
 				}
-				printDepth(depth); printf("OP_RETURN\n");
+				printDepth(depth); printf("RETURN\n");
 				return;
 
 			case OP_CALL_CLOSURE:
@@ -723,7 +781,7 @@ void YoProgCompiler::dump()
 					dumpOp(func, scope, op->ops[i], depth + 0);
 				}
 				printDepth(depth); var = emitVar(op->var);
-				printf("OP_VAR: %s#%d ", var->name.c_str(), indexOf(func, var));
+				printf("VAR: %s#%d ", var->name.c_str(), indexOf(func, var));
 				dumpType(op->type);
 				printf("\n");
 				return;
@@ -731,7 +789,7 @@ void YoProgCompiler::dump()
 			case OP_STRUCT_ELEMENT:
 				YO_ASSERT(op->ops.size() == 1);
 				dumpOp(func, scope, op->ops[0], depth + 0);
-				printDepth(depth); printf("OP_STRUCT_ELEMENT: %d ", op->structElementIndex);
+				printDepth(depth); printf("STRUCT_ELEMENT: %d ", op->structElementIndex);
 				dumpType(op->type);
 				printf("\n");
 				return;
@@ -741,7 +799,7 @@ void YoProgCompiler::dump()
 				// printDepth(depth); printf("begin OP_ELEMENT_PTR\n");
 				dumpOp(func, scope, op->ops[0], depth + 0);
 				dumpOp(func, scope, op->ops[1], depth + 0);
-				printDepth(depth); printf("OP_ELEMENT ");
+				printDepth(depth); printf("ELEMENT ");
 				dumpType(op->type);
 				printf("\n");
 				return;
@@ -749,7 +807,7 @@ void YoProgCompiler::dump()
 
 			case OP_FUNC:
 				YO_ASSERT(op->ops.size() == 0);
-				printDepth(depth); printf("OP_FUNC %s ", op->func->name.c_str());
+				printDepth(depth); printf("FUNC %s ", op->func->name.c_str());
 				dumpType(op->func->funcNativeType);
 				printf("\n");
 				return;
@@ -757,7 +815,7 @@ void YoProgCompiler::dump()
 			case OP_LOAD:
 				YO_ASSERT(op->ops.size() == 1);
 				dumpOp(func, scope, op->ops[0], depth + 0);
-				printDepth(depth); printf("OP_LOAD ");
+				printDepth(depth); printf("LOAD ");
 				dumpType(op->type);
 				printf("\n");
 				return;
@@ -767,7 +825,7 @@ void YoProgCompiler::dump()
 				// printDepth(depth); printf("begin OP_STORE\n");
 				dumpOp(func, scope, op->ops[0], depth + 0);
 				dumpOp(func, scope, op->ops[1], depth + 0);
-				printDepth(depth); printf("OP_STORE ");
+				printDepth(depth); printf("STORE ");
 				// if (op->type) dumpType(op->type);
 				printf("\n");
 				return;
@@ -777,7 +835,7 @@ void YoProgCompiler::dump()
 				// printDepth(depth); printf("begin OP_STORE_VALUE\n");
 				dumpOp(func, scope, op->ops[0], depth + 0);
 				dumpOp(func, scope, op->ops[1], depth + 0);
-				printDepth(depth); printf("OP_STORE_VALUE ");
+				printDepth(depth); printf("STORE_VALUE ");
 				// if (op->type) dumpType(op->type);
 				printf("\n");
 				return;
@@ -787,20 +845,20 @@ void YoProgCompiler::dump()
 				// printDepth(depth); printf("begin OP_STORE_REF\n");
 				dumpOp(func, scope, op->ops[0], depth + 0);
 				dumpOp(func, scope, op->ops[1], depth + 0);
-				printDepth(depth); printf("OP_STORE_REF ");
+				printDepth(depth); printf("STORE_REF ");
 				// if (op->type) dumpType(op->type);
 				printf("\n");
 				return;
 
 			case OP_VAR_MEMZERO:
 				var = emitVar(op->var);
-				printDepth(depth); printf("OP_VAR_MEMZERO: %s#%d ", var->name.c_str(), indexOf(func, var));
+				printDepth(depth); printf("VAR_MEMZERO: %s#%d ", var->name.c_str(), indexOf(func, var));
 				dumpType(var->type);
 				printf("\n");
 				return;
 
 			case OP_ZERO_VALUE:
-				printDepth(depth); printf("OP_ZERO_VALUE ");
+				printDepth(depth); printf("ZERO_VALUE ");
 				dumpType(op->type);
 				printf("\n");
 				return;
@@ -808,7 +866,7 @@ void YoProgCompiler::dump()
 			case OP_CAST_TRUNC:
 				YO_ASSERT(op->ops.size() == 1);
 				dumpOp(func, scope, op->ops[0], depth + 0);
-				printDepth(depth); printf("OP_CAST_TRUNC ");
+				printDepth(depth); printf("CAST_TRUNC ");
 				dumpType(op->type);
 				printf("\n");
 				return;
@@ -816,7 +874,7 @@ void YoProgCompiler::dump()
 			case OP_CAST_ZERO_EXT:
 				YO_ASSERT(op->ops.size() == 1);
 				dumpOp(func, scope, op->ops[0], depth + 0);
-				printDepth(depth); printf("OP_CAST_ZERO_EXT ");
+				printDepth(depth); printf("CAST_ZERO_EXT ");
 				dumpType(op->type);
 				printf("\n");
 				return;
@@ -824,7 +882,7 @@ void YoProgCompiler::dump()
 			case OP_CAST_SIGN_EXT:
 				YO_ASSERT(op->ops.size() == 1);
 				dumpOp(func, scope, op->ops[0], depth + 0);
-				printDepth(depth); printf("OP_CAST_SIGN_EXT ");
+				printDepth(depth); printf("CAST_SIGN_EXT ");
 				dumpType(op->type);
 				printf("\n");
 				return;
@@ -832,7 +890,7 @@ void YoProgCompiler::dump()
 			case OP_CAST_SI_TO_FP:
 				YO_ASSERT(op->ops.size() == 1);
 				dumpOp(func, scope, op->ops[0], depth + 0);
-				printDepth(depth); printf("OP_CAST_SI_TO_FP ");
+				printDepth(depth); printf("CAST_SI_TO_FP ");
 				dumpType(op->type);
 				printf("\n");
 				return;
@@ -840,7 +898,7 @@ void YoProgCompiler::dump()
 			case OP_CAST_UI_TO_FP:
 				YO_ASSERT(op->ops.size() == 1);
 				dumpOp(func, scope, op->ops[0], depth + 0);
-				printDepth(depth); printf("OP_CAST_UI_TO_FP ");
+				printDepth(depth); printf("CAST_UI_TO_FP ");
 				dumpType(op->type);
 				printf("\n");
 				return;
@@ -848,7 +906,7 @@ void YoProgCompiler::dump()
 			case OP_CAST_FP_TO_SI:
 				YO_ASSERT(op->ops.size() == 1);
 				dumpOp(func, scope, op->ops[0], depth + 0);
-				printDepth(depth); printf("OP_CAST_FP_TO_SI ");
+				printDepth(depth); printf("CAST_FP_TO_SI ");
 				dumpType(op->type);
 				printf("\n");
 				return;
@@ -856,7 +914,7 @@ void YoProgCompiler::dump()
 			case OP_CAST_FP_TO_UI:
 				YO_ASSERT(op->ops.size() == 1);
 				dumpOp(func, scope, op->ops[0], depth + 0);
-				printDepth(depth); printf("OP_CAST_FP_TO_UI ");
+				printDepth(depth); printf("CAST_FP_TO_UI ");
 				dumpType(op->type);
 				printf("\n");
 				return;
@@ -864,7 +922,7 @@ void YoProgCompiler::dump()
 			case OP_CAST_FP_TRUNC:
 				YO_ASSERT(op->ops.size() == 1);
 				dumpOp(func, scope, op->ops[0], depth + 0);
-				printDepth(depth); printf("OP_CAST_FP_TRUNC ");
+				printDepth(depth); printf("CAST_FP_TRUNC ");
 				dumpType(op->type);
 				printf("\n");
 				return;
@@ -872,7 +930,7 @@ void YoProgCompiler::dump()
 			case OP_CAST_FP_EXT:
 				YO_ASSERT(op->ops.size() == 1);
 				dumpOp(func, scope, op->ops[0], depth + 0);
-				printDepth(depth); printf("OP_CAST_FP_EXT ");
+				printDepth(depth); printf("CAST_FP_EXT ");
 				dumpType(op->type);
 				printf("\n");
 				return;
@@ -880,7 +938,7 @@ void YoProgCompiler::dump()
 			case OP_CAST_PTR:
 				YO_ASSERT(op->ops.size() == 1);
 				dumpOp(func, scope, op->ops[0], depth + 0);
-				printDepth(depth); printf("OP_CAST_PTR ");
+				printDepth(depth); printf("CAST_PTR ");
 				dumpType(op->type);
 				printf("\n");
 				return;
@@ -888,7 +946,7 @@ void YoProgCompiler::dump()
 			case OP_CAST_PTR_TO_INT:
 				YO_ASSERT(op->ops.size() == 1);
 				dumpOp(func, scope, op->ops[0], depth + 0);
-				printDepth(depth); printf("OP_CAST_PTR_TO_INT ");
+				printDepth(depth); printf("CAST_PTR_TO_INT ");
 				dumpType(op->type);
 				printf("\n");
 				return;
@@ -896,7 +954,7 @@ void YoProgCompiler::dump()
 			case OP_CAST_INT_TO_PTR:
 				YO_ASSERT(op->ops.size() == 1);
 				dumpOp(func, scope, op->ops[0], depth + 0);
-				printDepth(depth); printf("OP_CAST_INT_TO_PTR ");
+				printDepth(depth); printf("CAST_INT_TO_PTR ");
 				dumpType(op->type);
 				printf("\n");
 				return;
@@ -906,14 +964,14 @@ void YoProgCompiler::dump()
 					YO_ASSERT(op->ops.size() == 1);
 					dumpOp(func, scope, op->ops[0], depth + 0);
 				}
-				printDepth(depth); printf("OP_SIZEOF ");
+				printDepth(depth); printf("SIZEOF ");
 				dumpType(op->type);
 				printf("\n");
 				return;
 
 			case OP_TYPE:
 				YO_ASSERT(op->ops.size() == 0);
-				printDepth(depth); printf("OP_TYPE ");
+				printDepth(depth); printf("TYPE ");
 				dumpType(op->type);
 				printf("\n");
 				return;
@@ -923,7 +981,7 @@ void YoProgCompiler::dump()
 				printDepth(depth + 1); printf("TYPE ");
 				dumpType(op->typeStructElement.parent);
 				printf("\n");
-				printDepth(depth); printf("OP_TYPE_STRUCT_ELEMENT: %d ", op->typeStructElement.index);
+				printDepth(depth); printf("TYPE_STRUCT_ELEMENT: %d ", op->typeStructElement.index);
 				dumpType(op->type);
 				printf("\n");
 				return;
@@ -2016,7 +2074,7 @@ YoProgCompiler::Function * YoProgCompiler::compileFunc(Scope * scope, YoParserNo
 			return NULL;
 		}
 
-		Variable * var = new Variable(arg.type, argNames[i], node);
+		Variable * var = new Variable(func, arg.type, argNames[i], node);
 		var->isArg = var->isInitialized = true;
 		// var->isMutable = arg.isMutable;
 		func->vars.push_back(var);
@@ -2136,6 +2194,30 @@ bool YoProgCompiler::compileScopeBody(Scope * scope, YoParserNode * node)
 				}
 				break;
 
+			case YO_NODE_STMT_SWITCH:
+				if (!compileStmtSwitch(scope, stmt)) {
+					return false;
+				}
+				break;
+
+			case YO_NODE_STMT_CASE:
+				if (!compileStmtCase(scope, stmt)) {
+					return false;
+				}
+				break;
+
+			case YO_NODE_STMT_DEFAULT:
+				if (!compileStmtDefault(scope, stmt)) {
+					return false;
+				}
+				break;
+
+			case YO_NODE_STMT_FALLTHROUGH:
+				if (!compileStmtFallThrough(scope, stmt)) {
+					return false;
+				}
+				break;
+
 			case YO_NODE_STMT_RETURN:
 				if (!compileStmtReturn(scope, stmt)) {
 					return false;
@@ -2213,13 +2295,16 @@ YoProgCompiler::Variable * YoProgCompiler::compileDeclVar(Scope * scope, YoParse
 		return NULL;
 	}
 
-	Variable * var = new Variable(type, name, node->data.declVar.name);
+	Variable * var = new Variable(scope, type, name, node->data.declVar.name);
 	var->isGlobal = scope->escope == SCOPE_MODULE;
 	// var->isMutable = node->data.declVar.isMutable;
 	scope->vars.push_back(var);
 	if (scope->escope == SCOPE_BLOCK) {
 		getFunction(scope)->vars.push_back(var);
 	}
+	Operation * op = newOperation(OP_BEGIN_VAR, NULL, node);
+	op->var = var;
+	addStmt(scope, op);
 	return var;
 }
 
@@ -2235,7 +2320,7 @@ bool YoProgCompiler::findName(NameInfo& out, Scope * scope, const std::string& n
 		std::vector<Variable*>::reverse_iterator vit = scope->vars.rbegin();
 		for (; vit != scope->vars.rend(); ++vit) {
 			Variable * var = *vit;
-			if (var->isTemp) {
+			if (var->scope != scope || var->isTemp) {
 				continue;
 			}
 			if (var->name == name) {
@@ -2771,11 +2856,17 @@ YoProgCompiler::Variable * YoProgCompiler::allocTempValue(Scope * scope, Type * 
 
 YoProgCompiler::Variable * YoProgCompiler::allocTempValue(Scope * scope, Type * type, const std::string& name, YoParserNode * node)
 {
-	Variable * temp = new Variable(type, name, node);
-	getFunction(scope)->vars.push_back(temp);
+	Variable * var = new Variable(scope, type, name, node);
+	scope->vars.push_back(var);
+	if (scope->escope == SCOPE_BLOCK) {
+		getFunction(scope)->vars.push_back(var);
+	}
 	// temp->isMutable = true;
-	temp->isTemp = true;
-	return temp;
+	var->isTemp = true;
+	Operation * op = newOperation(OP_BEGIN_VAR, NULL, node);
+	op->var = var;
+	addStmt(scope, op);
+	return var;
 }
 
 void YoProgCompiler::addSymbol(const std::string& name, void * addr)
@@ -3138,7 +3229,7 @@ YoProgCompiler::Operation * YoProgCompiler::compileNewArrExprs(Scope * scope, Yo
 				numberType = op->type;
 			}
 			else{
-				numberType = getBinOpNumCast(numberType, op->type);
+				numberType = getBestNumType(numberType, op->type);
 			}
 		}
 		else{
@@ -3226,13 +3317,24 @@ bool YoProgCompiler::optimizeScopePass1(Scope * scope)
 			}
 		}
 	}
-	for (int i = 0; i < (int)scope->ops.size(); i++) {
+	int i;
+	for (i = 0; i < (int)scope->ops.size(); i++) {
 		Operation * subOp = optimizeOpPass1(scope, scope->ops[i]);
 		if (!subOp) {
 			YO_ASSERT(isError());
 			return false;
 		}
 		scope->ops[i] = subOp;
+	}
+	for (i = (int)scope->vars.size() - 1; i >= 0; i--) {
+		Variable * var = scope->vars[i];
+		if (var->scope == scope) {
+			Operation * op = newOperation(OP_END_VAR, NULL, var->parserNode);
+			op->var = var;
+			op = optimizeOpPass1(scope, op);
+			YO_ASSERT(op);
+			scope->ops.push_back(op);
+		}
 	}
 	return true;
 }
@@ -3255,7 +3357,64 @@ YoProgCompiler::Operation * YoProgCompiler::optimizeOpPass1(Scope * scope, Opera
 		op->ops[i] = subOp;
 	}
 
+	Scope * curScope;
 	switch (op->eop) {
+	case OP_BEGIN_VAR:
+		if (!op->var->isInitialized && !op->var->isTemp) {
+			if (op->var->type->etype == TYPE_REF) {
+				setError(ERROR_SYNTAX, op->parserNode, "Ref variable %s is not initialized", op->var->name.c_str());
+				return NULL;
+			}
+			Operation * dstOp = newVarOp(op->var, op->parserNode);
+			Operation * valueOp = newOperation(OP_ZERO_VALUE, op->var->type, op->parserNode);
+			Operation * initOp = newAssignOp(scope, SPEC_INIT, dstOp, valueOp, OP_NOP, op->parserNode);
+			initOp = optimizeOpPass1(scope, initOp);
+			op->ops.push_back(initOp);
+		}
+		break;
+
+	case OP_END_VAR:
+		// TODO: destruct var
+		break;
+
+	case OP_CASE:
+	case OP_DEFAULT:
+	case OP_FALLTHROUGH:
+		for (curScope = scope; curScope; curScope = curScope->parent) {
+			if (curScope->allowBreak || curScope->allowContinue || curScope->allowCase) {
+				break;
+			}
+		}
+		if (!curScope || !curScope->allowCase) {
+			setError(ERROR_SYNTAX, op->parserNode, "Switch scope not found");
+			return NULL;
+		}
+		break;
+
+	case OP_BREAK:
+		for (curScope = scope; curScope; curScope = curScope->parent) {
+			if (curScope->allowBreak) {
+				break;
+			}
+		}
+		if (!curScope) {
+			setError(ERROR_SYNTAX, op->parserNode, "Break scope not found");
+			return NULL;
+		}
+		break;
+
+	case OP_CONTINUE:
+		for (curScope = scope; curScope; curScope = curScope->parent) {
+			if (curScope->allowContinue) {
+				break;
+			}
+		}
+		if (!curScope) {
+			setError(ERROR_SYNTAX, op->parserNode, "Continue scope not found");
+			return NULL;
+		}
+		break;
+
 	case OP_SCOPE:
 		if (!optimizeScopePass1(op->scope)) {
 			YO_ASSERT(isError());
@@ -3286,6 +3445,22 @@ YoProgCompiler::Operation * YoProgCompiler::optimizeOpPass1(Scope * scope, Opera
 			op->stmtFor.conditionOp = subOp;
 		}
 		if (!optimizeScopePass1(op->stmtFor.bodyScope) || !optimizeScopePass1(op->stmtFor.stepScope)) {
+			YO_ASSERT(isError());
+			return NULL;
+		}
+		break;
+
+	case OP_SWITCH_EXPR:
+	case OP_SWITCH_LOGICAL:
+		if (op->stmtSwitch.conditionOp) {
+			subOp = optimizeOpPass1(scope, op->stmtSwitch.conditionOp);
+			if (!subOp) {
+				YO_ASSERT(isError());
+				return NULL;
+			}
+			op->stmtSwitch.conditionOp = subOp;
+		}
+		if (!optimizeScopePass1(op->stmtSwitch.bodyScope)) {
 			YO_ASSERT(isError());
 			return NULL;
 		}
@@ -3347,13 +3522,16 @@ YoProgCompiler::Operation * YoProgCompiler::optimizeOpPass1(Scope * scope, Opera
 		// YO_ASSERT(isLvalueOp(op->ops[0]));
 		subOp = op->ops[0];
 		YO_ASSERT(subOp->type->etype == TYPE_REF);
-		if (subOp->eop == OP_VAR && subOp->var->isArg) {
-			subOp->var->isChanged = true;
+		if (subOp->eop == OP_VAR) {
+			if (subOp->var->isArg) {
+				subOp->var->isChanged = true;
+			}
+			subOp->var->isUsed = true;
 		}
-		else if (subOp->eop == OP_VAR && !subOp->var->isInitialized && !subOp->var->isTemp) {
+		/* else if (subOp->eop == OP_VAR && !subOp->var->isInitialized && !subOp->var->isTemp) {
 			setError(ERROR_VAR_NOT_INITIALIZED, op->parserNode, "Read not initialized variable %s", op->ops[0]->var->name.c_str());
 			return NULL;
-		}
+		} */
 		break;
 
 	case OP_STORE: {
@@ -3395,7 +3573,21 @@ YoProgCompiler::Operation * YoProgCompiler::optimizeOpPass1(Scope * scope, Opera
 		// YO_ASSERT(false);
 		return NULL;
 	} // end case
-	}
+
+	case OP_ZERO_VALUE:
+	case OP_VAR:
+	case OP_CONST_INT:
+	case OP_CONST_FLOAT:
+	case OP_CONST_STRING:
+	case OP_FUNC:
+	case OP_CALL_FUNC:
+	case OP_RETURN:
+		break;
+
+	default:
+		setError(ERROR_UNREACHABLE, op->parserNode, "Error op: %d", (int)op->eop);
+		return NULL;
+	} // end switch
 	return op;
 }
 
@@ -3495,10 +3687,10 @@ YoProgCompiler::Operation * YoProgCompiler::newAssignOp(Scope * scope, ESpecAssi
 			left->var->isUsed = false;
 		}
 		else{
-			if (!left->var->isInitialized) {
+			/* if (spec != SPEC_ASSIGN && !left->var->isInitialized) {
 				setError(ERROR_VAR_NOT_INITIALIZED, left->var->parserNode, "Read not initialized variable %s", left->var->name.c_str());
 				return NULL;
-			}
+			} */
 			if (!isMutable(left->var->type)) {
 				setError(ERROR_MUTABLE_REQUIRED, node, "Variable %s is not mutable", left->var->name.c_str());
 				return NULL;
@@ -3534,7 +3726,7 @@ YoProgCompiler::Operation * YoProgCompiler::newAssignOp(Scope * scope, ESpecAssi
 			return NULL;
 		}
 		if (!left->var->isInitialized && left->var->type->etype == TYPE_REF) {
-			setError(ERROR_VAR_NOT_INITIALIZED, node, "Ref variable %s is not initialized", left->var->name.c_str());
+			setError(ERROR_SYNTAX, node, "Ref variable %s is not initialized", left->var->name.c_str());
 			return NULL;
 		}
 	}
@@ -3959,7 +4151,7 @@ YoProgCompiler::Operation * YoProgCompiler::compileCompareOp(Scope * scope, YoPa
 	Type * leftType = left->type; //  baseType(left->type, leftTypeAttrs);
 	Type * rightType = right->type; //  baseType(right->type, rightTypeAttrs);
 	if (leftType != rightType) {
-		Type * resType = getBinOpNumCast(leftType, rightType);
+		Type * resType = getBestNumType(leftType, rightType);
 		if (resType) {
 			Operation * newLeft = convertToType(scope, left, resType, CONVERT_BY_HAND, node);
 			Operation * newRight = convertToType(scope, right, resType, CONVERT_BY_HAND, node);
@@ -4244,7 +4436,7 @@ YoProgCompiler::Operation * YoProgCompiler::compileBinOp(Scope * scope, YoParser
 				return convertToType(scope, offsOp, leftType, CONVERT_BY_HAND, node);
 			}
 		}
-		Type * resType = getBinOpNumCast(leftType, rightType);
+		Type * resType = getBestNumType(leftType, rightType);
 		if (resType) {
 			Operation * newLeft = convertToType(scope, left, resType, CONVERT_BY_HAND, node);
 			Operation * newRight = convertToType(scope, right, resType, CONVERT_BY_HAND, node);
@@ -4293,7 +4485,7 @@ YoProgCompiler::Operation * YoProgCompiler::compileBitOp(Scope * scope, YoParser
 	Type * rightType = right->type; // removeMut(right->type, isRightMutable);
 	int bits;
 	bool isSigned;
-	Type * resType = getBinOpNumCast(leftType, rightType);
+	Type * resType = getBestNumType(leftType, rightType);
 	if (resType && getIntBits(resType, bits, isSigned)) {
 		Operation * newLeft = convertToType(scope, left, resType, CONVERT_BY_HAND, node);
 		Operation * newRight = convertToType(scope, right, resType, CONVERT_BY_HAND, node);
@@ -4411,6 +4603,8 @@ bool YoProgCompiler::compileStmtFor(Scope * scope, YoParserNode * node)
 	// for stmt could have local vars so create scope for
 	Scope * varScope = new Scope(scope, SCOPE_BLOCK, "varScope", node);
 	YO_ASSERT(varScope);
+	varScope->allowBreak = true;
+	varScope->allowContinue = true;
 
 	if (!compileScopeBody(varScope, node->data.stmtFor.init)) {
 		YO_ASSERT(isError());
@@ -4517,6 +4711,185 @@ bool YoProgCompiler::compileStmtIf(Scope * scope, YoParserNode * node)
 	return addStmt(scope, varScopeOp);
 }
 
+bool YoProgCompiler::compileStmtSwitch(Scope * scope, YoParserNode * node)
+{
+	YO_ASSERT(node && node->type == YO_NODE_STMT_SWITCH);
+
+	// if stmt could have local vars so create scope for
+	Scope * varScope = new Scope(scope, SCOPE_BLOCK, "varScope", node);
+	YO_ASSERT(varScope);
+	varScope->allowBreak = true;
+	varScope->allowCase = true;
+
+	Operation * conditionOp = NULL;
+	if (node->data.stmtSwitch.condition) {
+		conditionOp = compileOp(varScope, node->data.stmtSwitch.condition);
+		if (!conditionOp) {
+			YO_ASSERT(isError());
+			return false;
+		}
+	}
+	if (!node->data.stmtSwitch.body) {
+		setError(ERROR_SYNTAX, node, "Switch body required");
+		return false;
+	}
+	Scope * bodyScope = new Scope(varScope, SCOPE_BLOCK, "body", node->data.stmtSwitch.body);
+	YO_ASSERT(bodyScope);
+	if (!compileScopeBody(bodyScope, node->data.stmtSwitch.body)) {
+		YO_ASSERT(isError());
+		return false;
+	}
+	if (bodyScope->ops.size() == 0) {
+		setError(ERROR_SYNTAX, node, "Switch body required");
+		return false;
+	}
+	Operation * op = bodyScope->ops[0];
+	if (op->eop != OP_CASE && op->eop != OP_DEFAULT) {
+		setError(ERROR_SYNTAX, op->parserNode, "Switch body requires the first 'case' or 'default' statement");
+		return false;
+	}
+	
+	Operation * switchOp = newOperation(conditionOp ? OP_SWITCH_EXPR : OP_SWITCH_LOGICAL, NULL, node);
+	switchOp->stmtSwitch.conditionOp = conditionOp;
+	switchOp->stmtSwitch.bodyScope = bodyScope;
+	varScope->ops.push_back(switchOp);
+
+	Type * resType = NULL;
+	for (int i = 0; i < (int)bodyScope->ops.size(); i++) {
+		op = bodyScope->ops[i];
+		if (op->eop == OP_FALLTHROUGH) {
+			if (i + 1 < (int)bodyScope->ops.size()) {
+				op = bodyScope->ops[i + 1];
+				if (op->eop != OP_CASE && op->eop != OP_DEFAULT) {
+					setError(ERROR_SYNTAX, op->parserNode, "Fallthrough requires 'case' or 'default' statement after");
+					return false;
+				}
+			}
+		}
+		else if (op->eop == OP_DEFAULT) {
+			if (i > 0) {
+				Operation * prevOp = bodyScope->ops[i - 1];
+				if (prevOp->eop != OP_FALLTHROUGH) {
+					Operation * breakOp = newOperation(OP_BREAK, NULL, op->parserNode);
+					bodyScope->ops.insert(bodyScope->ops.begin() + i, breakOp);
+					i++;
+				}
+			}
+		}
+		else if (op->eop == OP_CASE) { // || op->eop == OP_DEFAULT) {
+			if (i > 0) {
+				Operation * prevOp = bodyScope->ops[i - 1];
+				if (prevOp->eop != OP_FALLTHROUGH) {
+					Operation * breakOp = newOperation(OP_BREAK, NULL, op->parserNode);
+					bodyScope->ops.insert(bodyScope->ops.begin() + i, breakOp);
+					i++;
+				}
+			}
+			if (!conditionOp) {
+				Operation * summary = NULL;
+				YO_ASSERT(op->ops.size());
+				for (int j = 0; j < (int)op->ops.size(); j++) {
+					Operation * right = convertToType(varScope, op->ops[j], getType(TYPE_BOOL), CONVERT_AUTO, op->ops[j]->parserNode);
+					if (!right) {
+						YO_ASSERT(isError());
+						return false;
+					}
+					if (!summary) {
+						summary = right;
+					}
+					else{
+						summary = newOperation(OP_LOGICAL_OR, getType(TYPE_BOOL), summary, op->ops[j]->parserNode);
+						summary->ops.push_back(right);
+					}
+				}
+				YO_ASSERT(summary);
+				op->ops.clear();
+				op->ops.push_back(summary);
+				switchOp->ops.push_back(op);
+			}
+			else{
+				YO_ASSERT(op->ops.size());
+				for (int j = 0; j < (int)op->ops.size(); j++) {
+					Operation * cur = op->ops[j];
+					Type * leftType = resType ? resType : conditionOp->type;
+					resType = getBestNumType(leftType, cur->type);
+					if (!resType) {
+						setError(ERROR_TYPE, cur->parserNode, "Error types for compare, left: %s, right: %s", leftType->name.c_str(), cur->type->name.c_str());
+						return NULL;
+					}
+				}
+				switchOp->ops.push_back(op);
+			}
+		}
+	}
+	if (conditionOp) {
+		YO_ASSERT(resType);
+		conditionOp = convertToType(varScope, conditionOp, resType, CONVERT_AUTO, conditionOp->parserNode);
+		if (!conditionOp) {
+			YO_ASSERT(isError());
+			return false;
+		}
+		Variable * tempVar = allocTempValue(varScope, resType, conditionOp->parserNode);
+		Operation * storeOp = newStoreOp(conditionOp, tempVar, conditionOp->parserNode);
+		conditionOp = newVarOp(tempVar, tempVar->parserNode);
+		conditionOp->ops.push_back(storeOp);
+		switchOp->stmtSwitch.conditionOp = conditionOp;
+
+		for (int i = 0; i < (int)switchOp->ops.size(); i++) {
+			Operation * caseOp = switchOp->ops[i];
+			YO_ASSERT(caseOp->eop == OP_CASE);
+			for (int j = 0; j < (int)caseOp->ops.size(); j++) {
+				Operation * cur = convertToType(varScope, caseOp->ops[j], resType, CONVERT_AUTO, conditionOp->parserNode);
+				if (!cur) {
+					YO_ASSERT(isError());
+					return false;
+				}
+				caseOp->ops[j] = cur;
+			}
+		}
+	}
+
+	Operation * varScopeOp = newOperation(OP_SCOPE, NULL, node);
+	varScopeOp->scope = varScope;
+	return addStmt(scope, varScopeOp);
+}
+
+bool YoProgCompiler::compileStmtCase(Scope * scope, YoParserNode * node)
+{
+	YO_ASSERT(node && node->type == YO_NODE_STMT_CASE);
+	Operation * op = newOperation(OP_CASE, NULL, node);
+
+	std::vector<YoParserNode*> nodes;
+	collectNodesInReversList(nodes, node->data.stmtCase.expr);
+
+	std::vector<YoParserNode*>::reverse_iterator it = nodes.rbegin();
+	for (; it != nodes.rend(); ++it) {
+		YoParserNode * exprNode = *it;
+		Operation * exprOp = compileOp(scope, exprNode);
+		if (!exprOp) {
+			YO_ASSERT(isError());
+			return false;
+		}
+		op->ops.push_back(exprOp);
+	}
+
+	return addStmt(scope, op);
+}
+
+bool YoProgCompiler::compileStmtDefault(Scope * scope, YoParserNode * node)
+{
+	YO_ASSERT(node && node->type == YO_NODE_STMT_DEFAULT);
+	Operation * op = newOperation(OP_DEFAULT, NULL, node);
+	return addStmt(scope, op);
+}
+
+bool YoProgCompiler::compileStmtFallThrough(Scope * scope, YoParserNode * node)
+{
+	YO_ASSERT(node && node->type == YO_NODE_STMT_FALLTHROUGH);
+	Operation * op = newOperation(OP_FALLTHROUGH, NULL, node);
+	return addStmt(scope, op);
+}
+
 bool YoProgCompiler::compileStmtReturn(Scope * scope, YoParserNode * node)
 {
 	YO_ASSERT(node && node->type == YO_NODE_STMT_RETURN);
@@ -4567,7 +4940,7 @@ bool YoProgCompiler::compileStmtReturn(Scope * scope, YoParserNode * node)
 	return addStmt(scope, op);
 }
 
-int YoProgCompiler::getConvertKey(EType from, EType to)
+int YoProgCompiler::getCastKey(EType from, EType to)
 {
 	return (int)from * 1000 + (int)to;
 }
@@ -4605,14 +4978,14 @@ bool YoProgCompiler::getFloatBits(Type * type, int& bits)
 	return false;
 }
 
-YoProgCompiler::Type * YoProgCompiler::getBinOpNumCast(Type * a, Type * b)
+YoProgCompiler::Type * YoProgCompiler::getBestNumType(Type * a, Type * b)
 {
 	a = baseType(a);
 	b = baseType(b);
 	if (a == b) {
 		return a;
 	}
-	int key = getConvertKey(a->etype, b->etype);
+	int key = getCastKey(a->etype, b->etype);
 	std::map<int, Type*>::iterator it = binOpNumCastTypes.find(key);
 	if (it != binOpNumCastTypes.end()) {
 		return it->second;
@@ -4680,7 +5053,7 @@ YoProgCompiler::Type * YoProgCompiler::getBinOpNumCast(Type * a, Type * b)
 YoProgCompiler::CastOp YoProgCompiler::getCastOp(Type * from, Type * to)
 {
 	YO_ASSERT(baseType(from) == from && baseType(to) == to);
-	int key = getConvertKey(from->etype, to->etype);
+	int key = getCastKey(from->etype, to->etype);
 	std::map<int, CastOp>::iterator it = castOps.find(key);
 	if (it != castOps.end()) {
 		return it->second;

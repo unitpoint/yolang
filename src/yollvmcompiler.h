@@ -103,8 +103,35 @@ protected:
 	std::vector<LabelBlock> breakLabels;
 	std::vector<LabelBlock> continueLabels;
 
+	struct SwitchBlock
+	{
+		struct CaseElem
+		{
+			llvm::BasicBlock * bb;
+			llvm::Value * value;
+		};
+
+		std::string label;
+		llvm::BasicBlock * condBB;
+		// llvm::Value * condValue;
+		// YoProgCompiler::Variable * condProgVar;
+		// llvm::SwitchInst * switchInst;
+		std::vector<CaseElem> caseElemList;
+		// std::vector<llvm::ConstantInt*> constIntValues;
+		// std::vector<llvm::Value*> values;
+
+		llvm::BasicBlock * bodyBB;
+		llvm::BasicBlock * testBB;
+		llvm::BasicBlock * defaultBB;
+		llvm::BasicBlock * afterBB;
+	};
+	std::vector<SwitchBlock*> switchBlocks;
+
 	void pushLabelBlock(std::vector<LabelBlock>&, const LabelBlock&, YoParserNode*);
 	bool popLabelBlock(std::vector<LabelBlock>&, const LabelBlock&, YoParserNode*);
+
+	void pushSwitchBlock(SwitchBlock*, YoParserNode*);
+	bool popSwitchBlock(SwitchBlock*, YoParserNode*);
 
 	llvm::CallingConv::ID getCallingConv(EYoCallingConv);
 
@@ -126,6 +153,11 @@ protected:
 	llvm::Value * compileOp(FuncParams*, YoProgCompiler::Scope*, YoProgCompiler::Operation*);
 	llvm::Value * compileIf(FuncParams*, YoProgCompiler::Scope*, YoProgCompiler::Operation*);
 	llvm::Value * compileFor(FuncParams*, YoProgCompiler::Scope*, YoProgCompiler::Operation*);
+	llvm::Value * compileSwitchExpr(FuncParams*, YoProgCompiler::Scope*, YoProgCompiler::Operation*);
+	llvm::Value * compileSwitchLogical(FuncParams*, YoProgCompiler::Scope*, YoProgCompiler::Operation*);
+	llvm::Value * compileCase(FuncParams*, YoProgCompiler::Scope*, YoProgCompiler::Operation*);
+	llvm::Value * compileDefault(FuncParams*, YoProgCompiler::Scope*, YoProgCompiler::Operation*);
+	llvm::Value * compileFallThrough(FuncParams*, YoProgCompiler::Scope*, YoProgCompiler::Operation*);
 	llvm::Value * compileBreakContinue(FuncParams*, YoProgCompiler::Scope*, YoProgCompiler::Operation*);
 	llvm::Value * compileLogical(FuncParams*, YoProgCompiler::Scope*, YoProgCompiler::Operation*);
 	llvm::Value * compileCall(FuncParams*, YoProgCompiler::Scope*, YoProgCompiler::Operation*);
