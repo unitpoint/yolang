@@ -726,11 +726,18 @@ void YoProgCompiler::dump()
 				printDepth(depth); printf("ENDSWITCH\n");
 				return;
 
-			case OP_CASE:
-				printDepth(depth - 1); printf("CASE\n");
+			case OP_CASE_LOGICAL:
+				YO_ASSERT(op->ops.size() == 1);
+				printDepth(depth - 1); printf("CASE LOGICAL\n");
+				dumpOp(func, scope, op->ops[0], depth);
+				printDepth(depth - 1); printf("ENDCASE\n");
+				return;
+
+			case OP_CASE_EXPR:
+				printDepth(depth - 1); printf("CASE EXPR\n");
 				for (i = 0; i < (int)op->ops.size(); i++) {
 					if (i > 0) {
-						printDepth(depth); printf(",\n");
+						printDepth(depth); printf(i == (int)op->ops.size()/2 ? "----\n" : ",\n");
 					}
 					dumpOp(func, scope, op->ops[i], depth);
 				}
@@ -3377,7 +3384,9 @@ YoProgCompiler::Operation * YoProgCompiler::optimizeOpPass1(Scope * scope, Opera
 		// TODO: destruct var
 		break;
 
-	case OP_CASE:
+	// case OP_CASE:
+	case OP_CASE_EXPR:
+	case OP_CASE_LOGICAL:
 	case OP_DEFAULT:
 	case OP_FALLTHROUGH:
 		for (curScope = scope; curScope; curScope = curScope->parent) {
@@ -3576,6 +3585,8 @@ YoProgCompiler::Operation * YoProgCompiler::optimizeOpPass1(Scope * scope, Opera
 
 	case OP_ZERO_VALUE:
 	case OP_VAR:
+	case OP_CAST_PTR:
+	case OP_CONST_NULL:
 	case OP_CONST_INT:
 	case OP_CONST_FLOAT:
 	case OP_CONST_STRING:
@@ -4754,7 +4765,7 @@ bool YoProgCompiler::compileStmtSwitch(Scope * scope, YoParserNode * node)
 	switchOp->stmtSwitch.bodyScope = bodyScope;
 	varScope->ops.push_back(switchOp);
 
-	Type * resType = NULL;
+	Type * resNumType = NULL;
 	for (int i = 0; i < (int)bodyScope->ops.size(); i++) {
 		op = bodyScope->ops[i];
 		if (op->eop == OP_FALLTHROUGH) {
@@ -4805,46 +4816,55 @@ bool YoProgCompiler::compileStmtSwitch(Scope * scope, YoParserNode * node)
 				YO_ASSERT(summary);
 				op->ops.clear();
 				op->ops.push_back(summary);
+				op->eop = OP_CASE_LOGICAL;
 				switchOp->ops.push_back(op);
 			}
 			else{
 				YO_ASSERT(op->ops.size());
 				for (int j = 0; j < (int)op->ops.size(); j++) {
 					Operation * cur = op->ops[j];
-					Type * leftType = resType ? resType : conditionOp->type;
-					resType = getBestNumType(leftType, cur->type);
-					if (!resType) {
+					Type * leftType = resNumType ? resNumType : conditionOp->type;
+					resNumType = getBestNumType(leftType, cur->type);
+					if (!resNumType) {
 						setError(ERROR_TYPE, cur->parserNode, "Error types for compare, left: %s, right: %s", leftType->name.c_str(), cur->type->name.c_str());
 						return NULL;
 					}
 				}
+				op->eop = OP_CASE_EXPR;
 				switchOp->ops.push_back(op);
 			}
 		}
 	}
 	if (conditionOp) {
-		YO_ASSERT(resType);
-		conditionOp = convertToType(varScope, conditionOp, resType, CONVERT_AUTO, conditionOp->parserNode);
+		YO_ASSERT(resNumType);
+		conditionOp = convertToType(varScope, conditionOp, resNumType, CONVERT_AUTO, conditionOp->parserNode);
 		if (!conditionOp) {
 			YO_ASSERT(isError());
 			return false;
 		}
-		Variable * tempVar = allocTempValue(varScope, resType, conditionOp->parserNode);
+		Variable * tempVar = allocTempValue(varScope, resNumType, conditionOp->parserNode);
 		Operation * storeOp = newStoreOp(conditionOp, tempVar, conditionOp->parserNode);
 		conditionOp = newVarOp(tempVar, tempVar->parserNode);
 		conditionOp->ops.push_back(storeOp);
 		switchOp->stmtSwitch.conditionOp = conditionOp;
 
-		for (int i = 0; i < (int)switchOp->ops.size(); i++) {
+		for (int j, i = 0; i < (int)switchOp->ops.size(); i++) {
 			Operation * caseOp = switchOp->ops[i];
-			YO_ASSERT(caseOp->eop == OP_CASE);
-			for (int j = 0; j < (int)caseOp->ops.size(); j++) {
-				Operation * cur = convertToType(varScope, caseOp->ops[j], resType, CONVERT_AUTO, conditionOp->parserNode);
+			YO_ASSERT(caseOp->eop == OP_CASE_EXPR);
+			int count = (int)caseOp->ops.size();
+			for (j = 0; j < count; j++) {
+				Operation * cur = convertToType(varScope, caseOp->ops[j], resNumType, CONVERT_AUTO, conditionOp->parserNode);
 				if (!cur) {
 					YO_ASSERT(isError());
 					return false;
 				}
 				caseOp->ops[j] = cur;
+			}
+			for (j = 0; j < count; j++) {
+				Operation * cmpOp = newOperation(OP_CMP_EQ, getType(TYPE_BOOL), caseOp->ops[j]->parserNode);
+				cmpOp->ops.push_back(valueOf(tempVar, tempVar->parserNode));
+				cmpOp->ops.push_back(caseOp->ops[j]);
+				caseOp->ops.push_back(cmpOp);
 			}
 		}
 	}

@@ -837,8 +837,11 @@ llvm::Value * YoLLVMCompiler::compileOp(FuncParams * func, YoProgCompiler::Scope
 	case YoProgCompiler::OP_SWITCH_LOGICAL:
 		return compileSwitchLogical(func, progScope, progOp);
 
-	case YoProgCompiler::OP_CASE:
-		return compileCase(func, progScope, progOp);
+	case YoProgCompiler::OP_CASE_EXPR:
+		return compileCaseExpr(func, progScope, progOp);
+
+	case YoProgCompiler::OP_CASE_LOGICAL:
+		return compileCaseLogical(func, progScope, progOp);
 
 	case YoProgCompiler::OP_DEFAULT:
 		return compileDefault(func, progScope, progOp);
@@ -1103,6 +1106,7 @@ llvm::Value * YoLLVMCompiler::compileSwitchExpr(FuncParams * func, YoProgCompile
 	switchBlock.afterBB = afterBB;
 	// switchBlock.condValue = NULL;
 	// switchBlock.switchInst = NULL;
+	switchBlock.constIntValues = 0;
 
 	pushLabelBlock(breakLabels, afterBB, progOp->parserNode);
 	pushSwitchBlock(&switchBlock, progOp->parserNode);
@@ -1144,32 +1148,36 @@ llvm::Value * YoLLVMCompiler::compileSwitchExpr(FuncParams * func, YoProgCompile
 		func->builder->CreateBr(afterBB);
 	}
 
-	int i, constValues = 0;
-	for (i = 0; i < (int)switchBlock.caseElemList.size(); i++) {
-		SwitchBlock::CaseElem& caseElem = switchBlock.caseElemList[i];
-		if (dyn_cast<ConstantInt>(caseElem.value)) {
-			constValues++;
-		}
-	}
 	func->builder->SetInsertPoint(condBB);
-	if (constValues > 0) {
+	if (switchBlock.constIntValues > 0) {
 		Value * condValue = func->builder->CreateLoad(condition);
-		SwitchInst * switchInst = func->builder->CreateSwitch(condValue, testBB, constValues);
-		for (i = 0; i < (int)switchBlock.caseElemList.size(); i++) {
+		SwitchInst * switchInst = func->builder->CreateSwitch(condValue, testBB, switchBlock.constIntValues);
+		for (int i = 0; i < (int)switchBlock.caseElemList.size(); i++) {
 			SwitchBlock::CaseElem& caseElem = switchBlock.caseElemList[i];
-			ConstantInt * value = dyn_cast<ConstantInt>(caseElem.value);
-			if (value) {
-				switchInst->addCase(value, caseElem.bb);
+			if (caseElem.constIntValue) {
+				switchInst->addCase(caseElem.constIntValue, caseElem.bb);
+				YO_ASSERT(!caseElem.cmpProgOp);
+			}
+			else{
+				YO_ASSERT(caseElem.cmpProgOp);
 			}
 		}
 	}
 
 	testBB->insertInto(func->llvmFunc);
 	func->builder->SetInsertPoint(testBB);
-	for (i = 0; i < (int)switchBlock.caseElemList.size(); i++) {
+	for (int i = 0; i < (int)switchBlock.caseElemList.size(); i++) {
 		SwitchBlock::CaseElem& caseElem = switchBlock.caseElemList[i];
-		if (!dyn_cast<ConstantInt>(caseElem.value)) {
-			YO_ASSERT(false);
+		if (caseElem.cmpProgOp) {
+			Value * compare = compileOp(func, progScope, caseElem.cmpProgOp);
+			if (!compare) {
+				YO_ASSERT(isError());
+				return NULL;
+			}
+			BasicBlock * continueTestBB = BasicBlock::Create(*llvmContext, "test");
+			func->builder->CreateCondBr(compare, caseElem.bb, continueTestBB);
+			continueTestBB->insertInto(func->llvmFunc);
+			func->builder->SetInsertPoint(testBB = continueTestBB);
 		}
 	}
 	if (defaultBB->getParent()) {
@@ -1191,13 +1199,83 @@ llvm::Value * YoLLVMCompiler::compileSwitchExpr(FuncParams * func, YoProgCompile
 
 llvm::Value * YoLLVMCompiler::compileSwitchLogical(FuncParams * func, YoProgCompiler::Scope * progScope, YoProgCompiler::Operation * progOp)
 {
-	YO_ASSERT(progOp->eop == YoProgCompiler::OP_SWITCH_LOGICAL && progOp->ops.size() == 0);
-	YO_ASSERT(false);
+	YO_ASSERT(progOp->eop == YoProgCompiler::OP_SWITCH_LOGICAL); // && progOp->ops.size() == 0);
+
+	BasicBlock * bodyBB = BasicBlock::Create(*llvmContext, "body");
+	BasicBlock * testBB = BasicBlock::Create(*llvmContext, "test");
+	BasicBlock * defaultBB = BasicBlock::Create(*llvmContext, "default");
+	BasicBlock * afterBB = BasicBlock::Create(*llvmContext, "after");
+
+	SwitchBlock switchBlock;
+	switchBlock.condBB = NULL;
+	switchBlock.bodyBB = bodyBB;
+	switchBlock.testBB = testBB;
+	switchBlock.defaultBB = defaultBB;
+	switchBlock.afterBB = afterBB;
+	switchBlock.constIntValues = 0;
+
+	pushLabelBlock(breakLabels, afterBB, progOp->parserNode);
+	pushSwitchBlock(&switchBlock, progOp->parserNode);
+
+	BasicBlock * curBB = func->builder->GetInsertBlock();
+	if (curBB->size() == 0 || !curBB->back().isTerminator()) {
+		func->builder->CreateBr(bodyBB);
+	}
+	YO_ASSERT(!progOp->stmtSwitch.conditionOp);
+
+	bodyBB->insertInto(func->llvmFunc);
+	func->builder->SetInsertPoint(bodyBB);
+	func->builder->CreateBr(testBB);
+	if (!compileScopeBody(func, progOp->stmtFor.bodyScope)) {
+		YO_ASSERT(isError());
+		// bodyBB->insertInto(func->llvmFunc);
+		testBB->insertInto(func->llvmFunc);
+		defaultBB->insertInto(func->llvmFunc);
+		afterBB->insertInto(func->llvmFunc);
+		return NULL;
+	}
+	// func->builder->SetInsertPoint(thenBB);
+	bodyBB = func->builder->GetInsertBlock();
+	if (bodyBB->size() == 0 || !bodyBB->back().isTerminator()) {
+		func->builder->CreateBr(afterBB);
+	}
+
+	YO_ASSERT(!switchBlock.constIntValues);
+	testBB->insertInto(func->llvmFunc);
+	func->builder->SetInsertPoint(testBB);
+	for (int i = 0; i < (int)switchBlock.caseElemList.size(); i++) {
+		SwitchBlock::CaseElem& caseElem = switchBlock.caseElemList[i];
+		YO_ASSERT(!caseElem.constIntValue && caseElem.cmpProgOp);
+		Value * compare = compileOp(func, progScope, caseElem.cmpProgOp);
+		if (!compare) {
+			YO_ASSERT(isError());
+			return NULL;
+		}
+		BasicBlock * continueTestBB = BasicBlock::Create(*llvmContext, "test");
+		func->builder->CreateCondBr(compare, caseElem.bb, continueTestBB);
+		continueTestBB->insertInto(func->llvmFunc);
+		func->builder->SetInsertPoint(testBB = continueTestBB);
+	}
+	if (defaultBB->getParent()) {
+		func->builder->CreateBr(defaultBB);
+	}
+	else{
+		func->builder->CreateBr(afterBB);
+	}
+
+	afterBB->insertInto(func->llvmFunc);
+	func->builder->SetInsertPoint(afterBB);
+
+	if (!popLabelBlock(breakLabels, afterBB, progOp->parserNode) || !popSwitchBlock(&switchBlock, progOp->parserNode)) {
+		YO_ASSERT(isError());
+		return NULL;
+	}
 	return Constant::getNullValue(Type::getInt8Ty(*llvmContext));
 }
 
-llvm::Value * YoLLVMCompiler::compileCase(FuncParams * func, YoProgCompiler::Scope * progScope, YoProgCompiler::Operation * progOp)
+llvm::Value * YoLLVMCompiler::compileCaseExpr(FuncParams * func, YoProgCompiler::Scope * progScope, YoProgCompiler::Operation * progOp)
 {
+	YO_ASSERT(progOp->eop == YoProgCompiler::OP_CASE_EXPR && progOp->ops.size() > 0 && progOp->ops.size() % 2 == 0);
 	if (switchBlocks.size() == 0) {
 		setError(ERROR_UNREACHABLE, progOp->parserNode, "Error 'case' usage");
 		return NULL;
@@ -1214,33 +1292,55 @@ llvm::Value * YoLLVMCompiler::compileCase(FuncParams * func, YoProgCompiler::Sco
 
 	SwitchBlock::CaseElem caseElem;
 	caseElem.bb = caseBB;
-	for (int i = 0; i < (int)progOp->ops.size(); i++) {
+
+	int halfSize = (int)progOp->ops.size() / 2;
+	for (int i = 0; i < halfSize; i++) {
 		Value * value = compileOp(func, progScope, progOp->ops[i]);
 		if (!value) {
 			YO_ASSERT(isError());
 			return NULL;
 		}
-		caseElem.value = value;
-		switchBlock->caseElemList.push_back(caseElem);
-#if 0
-		switchBlock->caseBBList.push_back(caseBB);
-		ConstantInt * constInt = dyn_cast<ConstantInt>(right);
-		if (constInt) {
-			switchBlock->constIntValues.push_back(constInt);
-			// switchBlock->switchInst->addCase(constInt, caseBB);
+		caseElem.constIntValue = dyn_cast<ConstantInt>(value);
+		if (caseElem.constIntValue) {
+			caseElem.cmpProgOp = NULL;
+			switchBlock->constIntValues++;
 		}
 		else{
-			switchBlock->values.push_back(right);
-			/*
-			YoProgCompiler::Operation * varProgOp = progCompiler->newVarOp(switchBlock->condProgVar, switchBlock->condProgVar->parserNode);
-			Value * left = compileOp(func, progScope, varProgOp);
-			if (!left) {
+			caseElem.cmpProgOp = progOp->ops[i + halfSize];
+			/* caseElem.compare = compileOp(func, progScope, progOp->ops[i + halfSize]);
+			if (!caseElem.compare) {
 				YO_ASSERT(isError());
 				return NULL;
-			}
-			*/
+			} */
 		}
-#endif
+		switchBlock->caseElemList.push_back(caseElem);
+	}
+	func->builder->SetInsertPoint(caseBB);
+	return Constant::getNullValue(Type::getInt8Ty(*llvmContext));
+}
+
+llvm::Value * YoLLVMCompiler::compileCaseLogical(FuncParams * func, YoProgCompiler::Scope * progScope, YoProgCompiler::Operation * progOp)
+{
+	YO_ASSERT(progOp->eop == YoProgCompiler::OP_CASE_LOGICAL && progOp->ops.size() > 0);
+	if (switchBlocks.size() == 0) {
+		setError(ERROR_UNREACHABLE, progOp->parserNode, "Error 'case' usage");
+		return NULL;
+	}
+	SwitchBlock * switchBlock = switchBlocks.back();
+	BasicBlock * caseBB = BasicBlock::Create(*llvmContext, "case");
+
+	BasicBlock * curBB = func->builder->GetInsertBlock();
+	if (curBB->size() == 0 || !curBB->back().isTerminator()) {
+		func->builder->CreateBr(caseBB);
+	}
+	caseBB->insertInto(func->llvmFunc);
+
+	SwitchBlock::CaseElem caseElem;
+	caseElem.bb = caseBB;
+	caseElem.constIntValue = NULL;
+	for (int i = 0; i < (int)progOp->ops.size(); i++) {
+		caseElem.cmpProgOp = progOp->ops[i];
+		switchBlock->caseElemList.push_back(caseElem);
 	}
 	func->builder->SetInsertPoint(caseBB);
 	return Constant::getNullValue(Type::getInt8Ty(*llvmContext));

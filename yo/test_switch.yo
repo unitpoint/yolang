@@ -2,22 +2,37 @@ mod test
 
 extern func printf(fmt *byte, ...)
 
+func fill(t &mut int) {
+	t = 15
+}
+
 func main() double {
-	let j mut int, _t = 15
+	let j mut int, t mut int
+	fill(t)
 	for let i mut = 0; i <= 20; i += 5 {
 		switch i {
 			// j = 1
 		case 0:
 			j = 5
 			// fallthrough
-		case 10, 15:
-			j = 10
+		case 10, t:
+			j = t * 2
 		default:
 			j = -1
 		case 20:
 			j = 19
 		}
-		printf("%d => %d\n", i, j)
+		printf("E %d => %d\n", i, j)
+		
+		switch {
+		case i >= 5 && i <= 10, i == 20:
+			j = 5
+		case i >= 15:
+			j = 15
+		default:
+			j = -1
+		}
+		printf("L %d => %d\n", i, j)
 	}
 	// break
 	return j

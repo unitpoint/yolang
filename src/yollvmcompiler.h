@@ -108,17 +108,14 @@ protected:
 		struct CaseElem
 		{
 			llvm::BasicBlock * bb;
-			llvm::Value * value;
+			llvm::ConstantInt * constIntValue;
+			YoProgCompiler::Operation * cmpProgOp;
 		};
 
 		std::string label;
 		llvm::BasicBlock * condBB;
-		// llvm::Value * condValue;
-		// YoProgCompiler::Variable * condProgVar;
-		// llvm::SwitchInst * switchInst;
 		std::vector<CaseElem> caseElemList;
-		// std::vector<llvm::ConstantInt*> constIntValues;
-		// std::vector<llvm::Value*> values;
+		int constIntValues;
 
 		llvm::BasicBlock * bodyBB;
 		llvm::BasicBlock * testBB;
@@ -155,7 +152,8 @@ protected:
 	llvm::Value * compileFor(FuncParams*, YoProgCompiler::Scope*, YoProgCompiler::Operation*);
 	llvm::Value * compileSwitchExpr(FuncParams*, YoProgCompiler::Scope*, YoProgCompiler::Operation*);
 	llvm::Value * compileSwitchLogical(FuncParams*, YoProgCompiler::Scope*, YoProgCompiler::Operation*);
-	llvm::Value * compileCase(FuncParams*, YoProgCompiler::Scope*, YoProgCompiler::Operation*);
+	llvm::Value * compileCaseExpr(FuncParams*, YoProgCompiler::Scope*, YoProgCompiler::Operation*);
+	llvm::Value * compileCaseLogical(FuncParams*, YoProgCompiler::Scope*, YoProgCompiler::Operation*);
 	llvm::Value * compileDefault(FuncParams*, YoProgCompiler::Scope*, YoProgCompiler::Operation*);
 	llvm::Value * compileFallThrough(FuncParams*, YoProgCompiler::Scope*, YoProgCompiler::Operation*);
 	llvm::Value * compileBreakContinue(FuncParams*, YoProgCompiler::Scope*, YoProgCompiler::Operation*);

@@ -427,6 +427,7 @@ var_assign_elem:
 		
 switch_header:
 		if_header
+	|	empty
 		
 switch_stmt:
 		T_SWITCH { yoParserEnableBrace(parm, &yyloc); } switch_header brace_stmt { 
